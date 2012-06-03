@@ -1,0 +1,13 @@
+TARGETNAME=GhostTool
+TARGETTYPE=PROGRAM
+
+INCLUDES=..\sys;..\..\GhostDrive
+
+TARGETLIBS=$(SDK_LIB_PATH)\shell32.lib \
+           $(SDK_LIB_PATH)\user32.lib
+
+SOURCES=main.c
+
+USE_MSVCRT=1
+
+UMTYPE=console

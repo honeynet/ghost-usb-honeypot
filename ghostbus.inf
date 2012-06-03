@@ -1,0 +1,103 @@
+
+; Ghost - A honeypot for USB malware
+; Copyright (C) 2011 to 2012  Sebastian Poeplau (sebastian.poeplau@gmail.com)
+; 
+; This program is free software: you can redistribute it and/or modify
+; it under the terms of the GNU General Public License as published by
+; the Free Software Foundation, either version 3 of the License, or
+; (at your option) any later version.
+; 
+; This program is distributed in the hope that it will be useful,
+; but WITHOUT ANY WARRANTY; without even the implied warranty of
+; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+; GNU General Public License for more details.
+; 
+; You should have received a copy of the GNU General Public License
+; along with this program.  If not, see <http://www.gnu.org/licenses/>.
+; 
+; Additional permission under GNU GPL version 3 section 7
+; 
+; If you modify this Program, or any covered work, by linking or combining
+; it with the Windows Driver Frameworks (or a modified version of that library),
+; containing parts covered by the terms of the Microsoft Software License Terms -
+; Microsoft Windows Driver Kit, the licensors of this Program grant you additional
+; permission to convey the resulting work.
+
+
+[Version]
+Signature = "$Windows NT$"
+Class = System
+ClassGuid = {4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider = %SP%
+DriverVer = 06/03/2012,1.0.0.0
+
+
+[SourceDisksNames]
+1 = %DiscDescription%
+
+
+[SourceDisksFiles]
+ghostbus.sys = 1
+
+
+[DestinationDirs]
+DefaultDestDir = 12
+GhostBusCoInstallerFiles = 11
+
+
+[GhostBusCoInstallerFiles]
+WdfCoInstaller01009.dll
+
+
+[Manufacturer]
+%Mfg% = Models,NTx86,NTamd64
+
+
+[Models.NTx86]
+%DeviceDesc% = GhostBusDevice,root\ghostbus
+
+[Models.NTamd64]
+%DeviceDesc% = GhostBusDevice,root\ghostbus
+
+
+[GhostBusDevice]
+CopyFiles = @ghostbus.sys
+
+
+[GhostBusDevice.Services]
+AddService = ghostbus,2,GhostBusService
+
+
+[GhostBusService]
+DisplayName = %ServiceName%
+Description = %ServiceDesc%
+ServiceType = 1
+StartType = 3
+ErrorControl = 1
+ServiceBinary = %12%\ghostbus.sys
+
+
+[GhostBusDevice.CoInstallers]
+AddReg = GhostBusCoInstallerReg
+CopyFiles = GhostBusCoInstallerFiles
+
+
+[GhostBusCoInstallerReg]
+HKR,,CoInstallers32,0x00010000,"WdfCoInstaller01009.dll,WdfCoInstaller"
+
+
+[GhostBusDevice.Wdf]
+KmdfService = ghostbus,GhostBusWdfService
+
+
+[GhostBusWdfService]
+KmdfLibraryVersion = 1.9
+
+
+[Strings]
+SP = "Sebastian Poeplau"
+DiscDescription = "GhostBus driver disk 1"
+Mfg = "(Standard system devices)"
+DeviceDesc = "GhostBus Enumerator"
+ServiceName = "GhostBus driver"
+ServiceDesc = "Enumerates GhostDrive virtual drives"
