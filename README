@@ -1,14 +1,13 @@
+                    README
 
-=== Building the honeypot ===
+Ghost is a honeypot for malware that uses USB storage devices
+for propagation. It is able to capture such malware without
+any further knowledge -- especially, it doesn't need signatures
+or the like to accomplish its task.
 
-You have to build the two device drivers "GhostBus.sys" and "GhostDrive.sys"
-as well as the command line tool "GhostTool.exe" from the source code.
-Please see http://code.google.com/p/ghost-usb-honeypot/wiki/BuildGuide for
-instructions.
+Detection is achieved by emulating a USB flash drive on
+Windows systems and observing the emulated device. The assumption
+is that on an infected machine the malware will eventually
+copy itself to the removable device.
 
-
-=== Installing the honeypot ===
-
-Once you have compiled the code, you can install Ghost on your system.
-For detailed instructions on how to do so, please refer to
-http://code.google.com/p/ghost-usb-honeypot/wiki/InstallGuide.
+See http://code.google.com/p/ghost-usb-honeypot/ for more details.
