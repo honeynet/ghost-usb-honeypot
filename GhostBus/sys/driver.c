@@ -27,6 +27,7 @@
 
 #include "driver.h"
 #include "ghostbus.h"
+#include <version.h>
 
 #include <wdmguid.h>
 
@@ -52,7 +53,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 	WDFDRIVER Driver;
 	NTSTATUS status;
 
-	KdPrint(("GhostBus initializing\n"));
+	KdPrint(("GhostBus version %s built %s %s\n", GHOST_VERSION, __DATE__, __TIME__));
 
 	WDF_DRIVER_CONFIG_INIT(&config, GhostBusDeviceAdd);
 	config.EvtDriverUnload = GhostBusUnload;

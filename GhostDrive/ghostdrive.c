@@ -29,6 +29,7 @@
 
 #include "ghostdrive.h"
 #include "ghostdrive_io.h"
+#include "version.h"
 
 #include <initguid.h>
 #include <ntdddisk.h>
@@ -60,7 +61,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 	WDFDRIVER Driver;
 	NTSTATUS status;
 
-	KdPrint(("GhostDrive built %s %s\n", __DATE__, __TIME__));
+	KdPrint(("GhostDrive version %s built %s %s\n", GHOST_VERSION, __DATE__, __TIME__));
 
 	WDF_DRIVER_CONFIG_INIT(&config, GhostDriveDeviceAdd);
 	config.EvtDriverUnload = GhostDriveUnload;

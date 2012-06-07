@@ -32,6 +32,7 @@
 
 #include <ghostbus.h>
 #include <ghostdrive_io.h>
+#include <version.h>
 
 
 
@@ -194,6 +195,8 @@ int __cdecl main(int argc, char *argv[])
 {
 	int ID;
 	char *image;
+	
+	printf("GhostTool version %s\n", GHOST_VERSION);
 
 	if (argc < 3) {
 		print_help();

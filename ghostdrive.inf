@@ -28,8 +28,8 @@
 Signature = "$Windows NT$"
 Class = DiskDrive
 ClassGuid = {4d36e967-e325-11ce-bfc1-08002be10318}
-Provider = %SP%
-DriverVer = 06/03/2012,1.0.0.0
+Provider = %Ghost%
+DriverVer = 06/07/2012,0.1
 
 
 [SourceDisksNames]
@@ -95,7 +95,7 @@ KmdfLibraryVersion = 1.9
 
 
 [Strings]
-SP = "Sebastian Poeplau"
+Ghost = "Ghost USB honeypot"
 DiscDescription = "GhostDrive driver disk 1"
 Mfg = "(Virtual device)"
 DeviceDesc = "GhostDrive virtual memory stick"
