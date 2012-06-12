@@ -29,6 +29,7 @@
 
 #include "ghostdrive.h"
 #include "ghostdrive_io.h"
+#include "information.h"
 #include "version.h"
 
 #include <initguid.h>
@@ -455,6 +456,9 @@ VOID GhostDriveWrite(WDFQUEUE Queue, WDFREQUEST Request, size_t Length)
 	PVOID Buffer;
 
 	KdPrint(("Write called\n"));
+	
+	// Collect information about the caller
+	GhostInfoCollectProcessData(Request);
 
 	// Get the device context
 	Context = GhostDriveGetContext(WdfIoQueueGetDevice(Queue));
