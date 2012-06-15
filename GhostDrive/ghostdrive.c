@@ -1,6 +1,6 @@
 /*
  * Ghost - A honeypot for USB malware
- * Copyright (C) 2011 to 2012  Sebastian Poeplau (sebastian.poeplau@gmail.com)
+ * Copyright (C) 2011-2012  Sebastian Poeplau (sebastian.poeplau@gmail.com)
  * 
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -9,11 +9,11 @@
  * 
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU General Public License for more details.
  * 
  * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * along with this program. If not, see <http://www.gnu.org/licenses/>.
  * 
  * Additional permission under GNU GPL version 3 section 7
  *
@@ -85,7 +85,7 @@ NTSTATUS GhostDriveDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 {
 	NTSTATUS status;
 	WDFDEVICE Device;
-	WDF_OBJECT_ATTRIBUTES DeviceAttr;
+	WDF_OBJECT_ATTRIBUTES DeviceAttr, QueueAttr;
 	WCHAR devname[] = DRIVE_DEVICE_NAME;
 	WCHAR linkname[] = DRIVE_LINK_NAME;
 	WCHAR imagename[] = IMAGE_NAME;
@@ -146,6 +146,8 @@ NTSTATUS GhostDriveDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 	Context->ImageWritten = FALSE;
 	Context->ID = ID;
 	Context->ChangeCount = 0;
+	Context->WriterInfoCount = 0;
+	Context->WriterInfo = NULL;
 
 	// Copy the name to the device extension
 	RtlCopyMemory(Context->DeviceName, DeviceName.Buffer, DeviceName.Length + sizeof(WCHAR));
@@ -156,8 +158,11 @@ NTSTATUS GhostDriveDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 	QueueConfig.EvtIoRead = GhostDriveRead;
 	QueueConfig.EvtIoWrite = GhostDriveWrite;
 	QueueConfig.EvtIoDeviceControl = GhostDriveDeviceControl;
+	
+	WDF_OBJECT_ATTRIBUTES_INIT(&QueueAttr);
+	QueueAttr.ExecutionLevel = WdfExecutionLevelPassive;	// necessary to collect writer information
 
-	status = WdfIoQueueCreate(Device, &QueueConfig, WDF_NO_OBJECT_ATTRIBUTES, NULL);
+	status = WdfIoQueueCreate(Device, &QueueConfig, &QueueAttr, NULL);
 	if (!NT_SUCCESS(status)) {
 		KdPrint(("Could not create the I/O queue\n"));
 		return status;
@@ -454,14 +459,42 @@ VOID GhostDriveWrite(WDFQUEUE Queue, WDFREQUEST Request, size_t Length)
 	IO_STATUS_BLOCK StatusBlock;
 	WDFMEMORY InputMemory;
 	PVOID Buffer;
+	PGHOST_INFO_PROCESS_DATA WriterInfo;
+	HANDLE Pid;
 
 	KdPrint(("Write called\n"));
-	
-	// Collect information about the caller
-	GhostInfoCollectProcessData(Request);
 
 	// Get the device context
 	Context = GhostDriveGetContext(WdfIoQueueGetDevice(Queue));
+	
+	// Collect information about the caller
+	if (Context->WriterInfoCount < MAX_NUM_WRITER_INFO) {
+		// Do we know the caller already?
+		Pid = PsGetCurrentProcessId();
+		WriterInfo = Context->WriterInfo;
+		while (WriterInfo != NULL) {
+			if (WriterInfo->ProcessId == Pid) {
+				break;
+			}
+			WriterInfo = WriterInfo->Next;
+		}
+		
+		if (WriterInfo == NULL) {
+			// Caller unknown yet - collect information
+			WriterInfo = GhostInfoCollectProcessData(Request);
+			if (WriterInfo != NULL) {
+				WriterInfo->Next = Context->WriterInfo;
+				Context->WriterInfo = WriterInfo;
+				Context->WriterInfoCount++;
+			}
+		}
+		else {
+			KdPrint(("Caller known already\n"));
+		}
+	}
+	else {
+		KdPrint(("Maximum number of writer info structs reached\n"));
+	}
 
 	// Check if an image is mounted at all
 	if (Context->ImageMounted == FALSE) {
@@ -1054,9 +1087,21 @@ VOID GhostDriveDeviceCleanup(WDFOBJECT Object)
 {
 	NTSTATUS status;
 	PGHOST_DRIVE_CONTEXT Context;
+	PGHOST_INFO_PROCESS_DATA ProcessInfo;
+	int counter;
 
 	Context = GhostDriveGetContext(Object);
 	KdPrint(("Image has been written to: %u\n", Context->ImageWritten));
 	if (Context->ImageMounted)
 		GhostDriveUmountImage(Object);
+	
+	counter = 0;
+	while (Context->WriterInfo != NULL) {
+		ProcessInfo = Context->WriterInfo;
+		Context->WriterInfo = Context->WriterInfo->Next;
+		GhostInfoFreeProcessData(ProcessInfo);
+		counter++;
+	}
+	
+	KdPrint(("%d info struct(s) freed\n", counter));
 }
