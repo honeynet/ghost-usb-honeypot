@@ -40,6 +40,7 @@ PGHOST_INFO_PROCESS_DATA GhostInfoCollectProcessData(WDFREQUEST Request) {
 	PLDR_DATA_TABLE_ENTRY ModuleInfo;
 	PLIST_ENTRY LoadedModules;
 	PGHOST_INFO_PROCESS_DATA ProcessInfo;
+	PGHOST_INFO_STRING_LIST LastEntry = NULL;
 	
 	// If the code is not called at passive level, we might execute in any process's context
 	if (KeGetCurrentIrql() != PASSIVE_LEVEL) {
@@ -63,6 +64,7 @@ PGHOST_INFO_PROCESS_DATA GhostInfoCollectProcessData(WDFREQUEST Request) {
 	ProcessInfo->ProcessId = PsGetCurrentProcessId();
 	ProcessInfo->ThreadId = PsGetCurrentThreadId();
 	ProcessInfo->ModuleNames = NULL;
+	ProcessInfo->ModuleNamesCount = 0;
 
 	KdPrint(("Process ID: %d\n", ProcessInfo->ProcessId));
 	KdPrint(("Thread ID: %d\n", ProcessInfo->ThreadId));
@@ -75,16 +77,24 @@ PGHOST_INFO_PROCESS_DATA GhostInfoCollectProcessData(WDFREQUEST Request) {
 		USHORT BufferLength;
 		
 		// Copy the DLL's name
-		BufferLength = ModuleInfo->FullDllName.Length + 1;
+		BufferLength = ModuleInfo->FullDllName.Length + 2;
 		List = ExAllocatePoolWithTag(PagedPool, sizeof(GHOST_INFO_STRING_LIST), TAG);
 		Buffer = ExAllocatePoolWithTag(PagedPool, BufferLength, TAG);
-		Buffer[BufferLength - 1] = '\0';
+		Buffer[BufferLength - 2] = L'\0';
 		RtlInitEmptyUnicodeString(&List->String, (PWCHAR) Buffer, BufferLength);
 		RtlCopyUnicodeString(&List->String, &ModuleInfo->FullDllName);
 		
 		// Append it to the list
-		List->Next = ProcessInfo->ModuleNames;
-		ProcessInfo->ModuleNames = List;
+		List->Next = NULL;
+		if (LastEntry != NULL) {
+			LastEntry->Next = List;
+			LastEntry = List;
+		}
+		else {
+			ProcessInfo->ModuleNames = List;
+			LastEntry = List;
+		}
+		ProcessInfo->ModuleNamesCount++;
 		
 		//KdPrint(("Base address: %p\n", ModuleInfo->ImageBase));
 		//KdPrint(("Entry point: %p\n", ModuleInfo->EntryPoint));
@@ -94,36 +104,6 @@ PGHOST_INFO_PROCESS_DATA GhostInfoCollectProcessData(WDFREQUEST Request) {
 		// Move to the next DLL
 		ModuleInfo = (PLDR_DATA_TABLE_ENTRY) ModuleInfo->Links.Flink;
 	}
-	
-	/*// Allocate local memory
-	KdPrint(("%d strings with %d bytes in total\n", StringCount, ByteLength));
-	ByteLength += sizeof(GHOST_DRIVE_PROCESS_INFO) + (StringCount - 1) * sizeof(UNICODE_STRING);
-	ProcessInfo = ExAllocatePoolWithTag(PagedPool, ByteLength, TAG);
-	if (ProcessInfo == NULL) {
-		KdPrint(("Memory allocation failed\n"));
-		return;
-	}
-	
-	// Second iteration: copy data to local memory
-	ProcessInfo->ProcessId = PsGetCurrentProcessId();
-	ProcessInfo->ThreadId = PsGetCurrentThreadId();
-	ProcessInfo->StringCount = StringCount;
-	ProcessInfo->ByteLength = ByteLength;
-	Buffer = ((PCHAR) ProcessInfo->ModuleNames) + StringCount * sizeof(UNICODE_STRING);
-	ModuleInfo = (PLDR_DATA_TABLE_ENTRY) LoadedModules->Flink;
-	for (i = 0; i < StringCount; i++) {
-		USHORT Length;
-		
-		Length = ModuleInfo->FullDllName.Length;
-		ProcessInfo->ModuleNames[i].Length = Length;
-		ProcessInfo->ModuleNames[i].MaximumLength = Length;
-		ProcessInfo->ModuleNames[i].Buffer = (PWCH) Buffer;
-		RtlCopyUnicodeString(&ProcessInfo->ModuleNames[i], &ModuleInfo->FullDllName);
-		ProcessInfo->ModuleNames[i].Buffer[Length] = '\0';
-		
-		Buffer += Length + 1; // NULL byte
-		ModuleInfo = (PLDR_DATA_TABLE_ENTRY) ModuleInfo->Links.Flink;
-	}*/
 	
 	return ProcessInfo;
 }
@@ -139,4 +119,63 @@ void GhostInfoFreeProcessData(PGHOST_INFO_PROCESS_DATA ProcessInfo) {
 	}
 	
 	ExFreePoolWithTag(ProcessInfo, TAG);
+}
+
+
+SIZE_T GhostInfoGetProcessDataBufferSize(PGHOST_INFO_PROCESS_DATA ProcessInfo) {
+	SIZE_T BufferSize = 0;
+	PGHOST_INFO_STRING_LIST ListEntry;
+	
+	BufferSize += sizeof(GHOST_DRIVE_WRITER_INFO_RESPONSE);
+	ListEntry = ProcessInfo->ModuleNames;
+	if (ListEntry != NULL) {
+		BufferSize -= sizeof(SIZE_T); // will be added during the loop
+	}
+	while (ListEntry != NULL) {
+		BufferSize += sizeof(SIZE_T) + ListEntry->String.Length + 2; // +2 for the wide null character at the end
+		ListEntry = ListEntry->Next;
+	}
+	
+	return BufferSize;
+}
+
+
+BOOLEAN GhostInfoStoreProcessDataInBuffer(PGHOST_INFO_PROCESS_DATA ProcessInfo, PVOID Buffer, SIZE_T BufferSize) {
+	SIZE_T StringOffset;
+	PCHAR StringBuffer;
+	PGHOST_DRIVE_WRITER_INFO_RESPONSE Response;
+	PGHOST_INFO_STRING_LIST ListEntry;
+	int i;
+	
+	if (BufferSize < GhostInfoGetProcessDataBufferSize(ProcessInfo)) {
+		KdPrint(("Buffer too small\n"));
+		return FALSE;
+	}
+	
+	// Translate the main struct
+	Response = Buffer;
+	Response->ProcessId = ProcessInfo->ProcessId;
+	Response->ThreadId = ProcessInfo->ThreadId;
+	Response->ModuleNamesCount = ProcessInfo->ModuleNamesCount;
+	
+	// Copy the module names
+	StringOffset = sizeof(GHOST_DRIVE_WRITER_INFO_RESPONSE) - sizeof(SIZE_T) + ProcessInfo->ModuleNamesCount * sizeof(SIZE_T);
+	ListEntry = ProcessInfo->ModuleNames;
+	for (i = 0; i < ProcessInfo->ModuleNamesCount; i++) {
+		if (ListEntry == NULL) {
+			// This does not happen if ModuleNamesCount is correct
+			// Still include it as a safeguard
+			break;
+		}
+		
+		StringBuffer = ((PCHAR) Buffer) + StringOffset;
+		RtlCopyMemory(StringBuffer, ListEntry->String.Buffer, ListEntry->String.Length);
+		StringBuffer[ListEntry->String.Length] = L'\0';
+		Response->ModuleNameOffsets[i] = StringOffset;
+		
+		StringOffset += ListEntry->String.Length + 2;
+		ListEntry = ListEntry->Next;
+	}
+	
+	return TRUE;
 }

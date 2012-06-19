@@ -42,8 +42,6 @@
 
 #define TAG 'rDhG'
 
-#define MAX_NUM_WRITER_INFO 32
-
 
 /*
  * The context struct is attached to each instance of the virtual

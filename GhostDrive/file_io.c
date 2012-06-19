@@ -30,6 +30,7 @@
 
 #include "file_io.h"
 #include "ghostdrive.h"
+#include "ghostdrive_io.h"
 #include "information.h"
 
 

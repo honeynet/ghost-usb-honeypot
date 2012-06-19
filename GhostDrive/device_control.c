@@ -50,6 +50,7 @@ void GhostDeviceControlMountImage(WDFREQUEST Request, WDFDEVICE Device);
 void GhostDeviceControlUmountImage(WDFREQUEST Request, WDFDEVICE Device, PGHOST_DRIVE_CONTEXT Context);
 void GhostDeviceControlQueryDeviceName(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
 void GhostDeviceControlQueryUniqueId(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
+void GhostDeviceControlGetWriterInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
 
 
 /*
@@ -147,13 +148,17 @@ VOID GhostDeviceControlDispatch(WDFQUEUE Queue, WDFREQUEST Request, size_t Outpu
 			break;
 
 		case IOCTL_STORAGE_GET_MEDIA_SERIAL_NUMBER:
-			KdPrint(("Invalid - GetMediaSerialNumber"));
+			KdPrint(("Invalid - GetMediaSerialNumber\n"));
 			WdfRequestComplete(Request, STATUS_INVALID_DEVICE_REQUEST);
 			break;
 
 		case IOCTL_STORAGE_LOAD_MEDIA:
-			KdPrint(("Invalid - LoadMedia"));
+			KdPrint(("Invalid - LoadMedia\n"));
 			WdfRequestComplete(Request, STATUS_INVALID_DEVICE_REQUEST);
+			break;
+			
+		case IOCTL_GHOST_DRIVE_GET_WRITER_INFO:
+			GhostDeviceControlGetWriterInfo(Request, Context);
 			break;
 
 		default:
@@ -588,4 +593,72 @@ void GhostDeviceControlQueryUniqueId(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Co
 	}
 
 	WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, Length + sizeof(USHORT));
+}
+
+
+void GhostDeviceControlGetWriterInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context) {
+	NTSTATUS status;
+	PGHOST_DRIVE_WRITER_INFO_PARAMETERS WriterInfoParams;
+	USHORT Index, i;
+	PGHOST_INFO_PROCESS_DATA ProcessInfo;
+	PVOID Buffer;
+	SIZE_T BufferSize, RequiredSize;
+	
+	KdPrint(("GetWriterInfo\n"));
+	
+	status = WdfRequestRetrieveInputBuffer(Request, sizeof(GHOST_DRIVE_WRITER_INFO_PARAMETERS), &WriterInfoParams, NULL);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not retrieve input parameters: 0x%lx\n", status));
+		WdfRequestComplete(Request, STATUS_UNSUCCESSFUL);
+		return;
+	}
+	
+	KdPrint(("Block: %d\n", WriterInfoParams->Block)); // TODO: handle
+	KdPrint(("Index: %d\n", WriterInfoParams->Index));
+	
+	Index = WriterInfoParams->Index;
+	if (Index >= Context->WriterInfoCount) {
+		KdPrint(("Index out of bounds\n"));
+		WdfRequestComplete(Request, STATUS_UNSUCCESSFUL);
+		return;
+	}
+	
+	ProcessInfo = Context->WriterInfo;
+	for (i = 0; i < (Context->WriterInfoCount - Index - 1); i++) {
+		if (ProcessInfo == NULL) {
+			// This does not happen as long as WriterInfoCount is correct
+			// Still check as a safeguard
+			WdfRequestComplete(Request, STATUS_UNSUCCESSFUL);
+			return;
+		}
+		
+		ProcessInfo = ProcessInfo->Next;
+	}
+	
+	// Retrieve the output buffer
+	status = WdfRequestRetrieveOutputBuffer(Request, sizeof(SIZE_T), &Buffer, &BufferSize);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not obtain output buffer: 0x%lx\n", status));
+		WdfRequestComplete(Request, status);
+		return;
+	}
+	
+	KdPrint(("Output buffer size is %d\n", BufferSize));
+	RequiredSize = GhostInfoGetProcessDataBufferSize(ProcessInfo);
+	// If the output buffer is too small, just return its required size
+	if (BufferSize < RequiredSize) {
+		KdPrint(("Output buffer is too small - need %d bytes\n", RequiredSize));
+		*((SIZE_T*) Buffer) = RequiredSize;
+		WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, sizeof(SIZE_T));
+		return;
+	}
+	
+	// Return the requested information
+	if (GhostInfoStoreProcessDataInBuffer(ProcessInfo, Buffer, BufferSize) == FALSE) {
+		WdfRequestComplete(Request, STATUS_INTERNAL_ERROR);
+		return;
+	}
+	
+	KdPrint(("WriterInfo copied\n"));
+	WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, RequiredSize);
 }

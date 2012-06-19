@@ -42,6 +42,7 @@ typedef struct _GHOST_INFO_STRING_LIST {
 typedef struct _GHOST_INFO_PROCESS_DATA {
 	HANDLE ProcessId;
 	HANDLE ThreadId;
+	USHORT ModuleNamesCount;
 	PGHOST_INFO_STRING_LIST ModuleNames;
 	struct _GHOST_INFO_PROCESS_DATA *Next;
 } GHOST_INFO_PROCESS_DATA, *PGHOST_INFO_PROCESS_DATA;
@@ -49,6 +50,8 @@ typedef struct _GHOST_INFO_PROCESS_DATA {
 
 PGHOST_INFO_PROCESS_DATA GhostInfoCollectProcessData(WDFREQUEST Request);
 void GhostInfoFreeProcessData(PGHOST_INFO_PROCESS_DATA ProcessInfo);
+SIZE_T GhostInfoGetProcessDataBufferSize(PGHOST_INFO_PROCESS_DATA ProcessInfo);
+BOOLEAN GhostInfoStoreProcessDataInBuffer(PGHOST_INFO_PROCESS_DATA ProcessInfo, PVOID Buffer, SIZE_T BufferSize);
 
 
 /*

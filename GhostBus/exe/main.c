@@ -44,6 +44,70 @@ void print_help() {
 }
 
 
+void PrintWriterInfo(PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo) {
+	int i;
+	
+	printf("\n");
+	printf("PID: %d\n", WriterInfo->ProcessId);
+	printf("TID: %d\n", WriterInfo->ThreadId);
+	printf("Loaded modules:\n");
+	for (i = 0; i < WriterInfo->ModuleNamesCount; i++) {
+		printf("%S\n", (PWCHAR) ((PCHAR) WriterInfo + WriterInfo->ModuleNameOffsets[i]));
+	}
+	printf("\n");
+}
+
+
+PGHOST_DRIVE_WRITER_INFO_RESPONSE GetWriterInfo(HANDLE Device, USHORT Index) {
+	GHOST_DRIVE_WRITER_INFO_PARAMETERS WriterInfoParams;
+	BOOL result;
+	SIZE_T RequiredSize;
+	DWORD BytesReturned;
+	PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
+	
+	WriterInfoParams.Block = FALSE;
+	WriterInfoParams.Index = Index;
+	
+	result = DeviceIoControl(Device,
+		IOCTL_GHOST_DRIVE_GET_WRITER_INFO,
+		&WriterInfoParams,
+		sizeof(GHOST_DRIVE_WRITER_INFO_PARAMETERS),
+		&RequiredSize,
+		sizeof(SIZE_T),
+		&BytesReturned,
+		NULL);
+
+	if (result == FALSE) {
+		// Probably no more data available
+		return NULL;
+	}
+	
+	//printf("%d bytes returned\n", BytesReturned);
+	//printf("Need %d bytes\n", RequiredSize);
+	
+	WriterInfo = malloc(RequiredSize);
+	//printf("Retrieving actual data...\n");
+	
+	result = DeviceIoControl(Device,
+		IOCTL_GHOST_DRIVE_GET_WRITER_INFO,
+		&WriterInfoParams,
+		sizeof(GHOST_DRIVE_WRITER_INFO_PARAMETERS),
+		WriterInfo,
+		RequiredSize,
+		&BytesReturned,
+		NULL);
+
+	if (result == FALSE) {
+		printf("Error: IOCTL code failed: %d\n", GetLastError());
+		free(WriterInfo);
+		return NULL;
+	}
+	
+	//printf("Returned %d bytes\n", BytesReturned);
+	return WriterInfo;
+}
+
+
 void mount_image(int ID) {
 	HANDLE hDevice;
 	DWORD BytesReturned;
@@ -56,8 +120,8 @@ void mount_image(int ID) {
 	printf("Opening bus device...\n");
 
 	hDevice = CreateFile("\\\\.\\GhostBus",
-		GENERIC_READ | GENERIC_WRITE,
 		0,
+		FILE_SHARE_READ | FILE_SHARE_WRITE,
 		NULL,
 		OPEN_EXISTING,
 		FILE_ATTRIBUTE_NORMAL,
@@ -97,6 +161,8 @@ void umount_image(int ID) {
 	LONG lID;
 	char dosdevice[] = "\\\\.\\GhostDrive0";
 	BOOLEAN Written = FALSE;
+	PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
+	USHORT i;
 
 	dosdevice[14] = ID + 0x30;
 	lID = ID;
@@ -106,8 +172,8 @@ void umount_image(int ID) {
 	printf("Opening GhostDrive...\n");
 
 	hDevice = CreateFile(dosdevice,
-		GENERIC_READ | GENERIC_WRITE,
 		0,
+		FILE_SHARE_READ | FILE_SHARE_WRITE,
 		NULL,
 		OPEN_EXISTING,
 		FILE_ATTRIBUTE_NORMAL,
@@ -127,34 +193,48 @@ void umount_image(int ID) {
 
 		if (result == FALSE) {
 			printf("Error: IOCTL code failed: %d\n", GetLastError());
+			CloseHandle(hDevice);
 			return;
 		}
-
-		CloseHandle(hDevice);
 
 		if (BytesReturned > 0) {
 			if (Written == TRUE) {
 				printf("Image has been written to!\n");
+				printf("Querying writer info...\n");
+				
+				for (i = 0; i < MAX_NUM_WRITER_INFO; i++) {
+					WriterInfo = GetWriterInfo(hDevice, i);
+					if (WriterInfo != NULL) {
+						PrintWriterInfo(WriterInfo);
+						free(WriterInfo);
+					}
+					else {
+						break;
+					}
+				}
 			}
 			else {
 				printf("No data has been written to the image\n");
 			}
 		}
 		else {
-		// This should not happen
+			// This should not happen
 			printf("The driver did not provide write state information\n");
 		}
+
+		CloseHandle(hDevice);
 	}
 	else {
 		printf("Error: Could not open %s\n", dosdevice);
+		return;
 	}
 
 
 	printf("Opening bus device...\n");
 
 	hDevice = CreateFile("\\\\.\\GhostBus",
-		GENERIC_READ | GENERIC_WRITE,
 		0,
+		FILE_SHARE_READ | FILE_SHARE_WRITE,
 		NULL,
 		OPEN_EXISTING,
 		FILE_ATTRIBUTE_NORMAL,
@@ -183,9 +263,9 @@ void umount_image(int ID) {
 
 	CloseHandle(hDevice);
 
-	if (Written == TRUE) {
-		MessageBox(NULL, "Data has been written to the image. This might indicate an infection!", "GhostDrive", MB_OK | MB_ICONEXCLAMATION);
-	}
+	// if (Written == TRUE) {
+	// 		MessageBox(NULL, "Data has been written to the image. This might indicate an infection!", "GhostDrive", MB_OK | MB_ICONEXCLAMATION);
+	// 	}
 
 	printf("Finished\n");
 }
