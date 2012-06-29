@@ -60,6 +60,7 @@ typedef struct _GHOST_DRIVE_CONTEXT {
 	ULONG ChangeCount;
 	USHORT WriterInfoCount;
 	PGHOST_INFO_PROCESS_DATA WriterInfo;   // paged memory
+	WDFQUEUE WriterInfoQueue;
 
 } GHOST_DRIVE_CONTEXT, *PGHOST_DRIVE_CONTEXT;
 

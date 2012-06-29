@@ -28,6 +28,7 @@
 
 #include <ntifs.h>
 
+#include "device_control.h"
 #include "file_io.h"
 #include "ghostdrive.h"
 #include "ghostdrive_io.h"
@@ -299,6 +300,7 @@ VOID GhostFileIoWrite(WDFQUEUE Queue, WDFREQUEST Request, size_t Length)
 				WriterInfo->Next = Context->WriterInfo;
 				Context->WriterInfo = WriterInfo;
 				Context->WriterInfoCount++;
+				GhostDeviceControlProcessPendingWriterInfoRequests(Context);
 			}
 		}
 		else {

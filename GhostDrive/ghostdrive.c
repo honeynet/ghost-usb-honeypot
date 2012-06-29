@@ -42,6 +42,7 @@ DRIVER_INITIALIZE DriverEntry;
 EVT_WDF_DRIVER_DEVICE_ADD GhostDriveDeviceAdd;
 EVT_WDF_DRIVER_UNLOAD GhostDriveUnload;
 EVT_WDF_OBJECT_CONTEXT_CLEANUP GhostDriveDeviceCleanup;
+EVT_WDF_DEVICE_QUERY_REMOVE GhostDriveQueryRemove;
 
 NTSTATUS GhostDriveMountImage(WDFDEVICE Device, PUNICODE_STRING ImageName, PLARGE_INTEGER ImageSize);
 
@@ -80,6 +81,7 @@ NTSTATUS GhostDriveDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 	NTSTATUS status;
 	WDFDEVICE Device;
 	WDF_OBJECT_ATTRIBUTES DeviceAttr, QueueAttr;
+	WDF_PNPPOWER_EVENT_CALLBACKS PnpPowerCallbacks;
 	WCHAR devname[] = DRIVE_DEVICE_NAME;
 	WCHAR linkname[] = DRIVE_LINK_NAME;
 	WCHAR imagename[] = IMAGE_NAME;
@@ -126,6 +128,11 @@ NTSTATUS GhostDriveDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 		KdPrint(("Could not assign an SDDL string\n"));
 		return status;
 	}
+	
+	// Register callbacks
+	WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&PnpPowerCallbacks);
+	PnpPowerCallbacks.EvtDeviceQueryRemove = GhostDriveQueryRemove;
+	WdfDeviceInitSetPnpPowerEventCallbacks(DeviceInit, &PnpPowerCallbacks);
 
 	// Create the device
 	status = WdfDeviceCreate(&DeviceInit, &DeviceAttr, &Device);
@@ -158,7 +165,16 @@ NTSTATUS GhostDriveDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 
 	status = WdfIoQueueCreate(Device, &QueueConfig, &QueueAttr, NULL);
 	if (!NT_SUCCESS(status)) {
-		KdPrint(("Could not create the I/O queue\n"));
+		KdPrint(("Could not create the default I/O queue\n"));
+		return status;
+	}
+	
+	// Create a separate queue for blocking writer info requests
+	WDF_IO_QUEUE_CONFIG_INIT(&QueueConfig, WdfIoQueueDispatchManual);
+
+	status = WdfIoQueueCreate(Device, &QueueConfig, &QueueAttr, &Context->WriterInfoQueue);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not create the I/O queue for writer info requests\n"));
 		return status;
 	}
 
@@ -232,6 +248,7 @@ VOID GhostDriveDeviceCleanup(WDFOBJECT Object)
 	if (Context->ImageMounted)
 		GhostFileIoUmountImage(Object);
 	
+	// Free the writer info structs
 	counter = 0;
 	while (Context->WriterInfo != NULL) {
 		ProcessInfo = Context->WriterInfo;
@@ -241,4 +258,21 @@ VOID GhostDriveDeviceCleanup(WDFOBJECT Object)
 	}
 	
 	KdPrint(("%d info struct(s) freed\n", counter));
+}
+
+
+NTSTATUS GhostDriveQueryRemove(WDFDEVICE Device) {
+	PGHOST_DRIVE_CONTEXT Context;
+	
+	KdPrint(("QueryRemove\n"));
+	
+	Context = GhostDriveGetContext(Device);
+	KdPrint(("Draining the writer info queue...\n"));
+	WdfIoQueuePurgeSynchronously(Context->WriterInfoQueue);
+	
+	if (!NT_SUCCESS(GhostFileIoUmountImage(Device))) {
+        KdPrint(("Could not unmount the image\n"));
+	}
+	
+	return STATUS_SUCCESS;
 }

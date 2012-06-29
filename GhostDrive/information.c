@@ -51,6 +51,7 @@ PGHOST_INFO_PROCESS_DATA GhostInfoCollectProcessData(WDFREQUEST Request) {
 	// "System" is not a real process...
 	if (PsGetCurrentProcessId() == (HANDLE) 4) {
 		KdPrint(("CollectProcessData called by SYSTEM\n"));
+		KdPrint(("Thread ID: %d\n", PsGetCurrentThreadId()));
 		return NULL;
 	}
 	

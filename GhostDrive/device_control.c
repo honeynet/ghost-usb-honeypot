@@ -50,12 +50,12 @@ void GhostDeviceControlMountImage(WDFREQUEST Request, WDFDEVICE Device);
 void GhostDeviceControlUmountImage(WDFREQUEST Request, WDFDEVICE Device, PGHOST_DRIVE_CONTEXT Context);
 void GhostDeviceControlQueryDeviceName(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
 void GhostDeviceControlQueryUniqueId(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
+void GhostDeviceControlHandleWriterInfoRequest(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
 void GhostDeviceControlGetWriterInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
 
 
 /*
  * The framework calls this routine whenever Device Control IRPs have to be handled.
- * TODO: Dispatch to other functions.
  * TODO: Document control codes.
  */
 VOID GhostDeviceControlDispatch(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBufferLength,
@@ -158,7 +158,7 @@ VOID GhostDeviceControlDispatch(WDFQUEUE Queue, WDFREQUEST Request, size_t Outpu
 			break;
 			
 		case IOCTL_GHOST_DRIVE_GET_WRITER_INFO:
-			GhostDeviceControlGetWriterInfo(Request, Context);
+			GhostDeviceControlHandleWriterInfoRequest(Request, Context);
 			break;
 
 		default:
@@ -500,7 +500,8 @@ void GhostDeviceControlUmountImage(WDFREQUEST Request, WDFDEVICE Device, PGHOST_
 		// continue anyway
 	}
 
-	status = GhostFileIoUmountImage(Device);
+    // We don't unmount here anymore, since this is now done in GhostDriveQueryRemove
+	//status = GhostFileIoUmountImage(Device);
 
 	if (Written != NULL) {
 		*Written = Context->ImageWritten;
@@ -596,15 +597,12 @@ void GhostDeviceControlQueryUniqueId(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Co
 }
 
 
-void GhostDeviceControlGetWriterInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context) {
+void GhostDeviceControlHandleWriterInfoRequest(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context) {
 	NTSTATUS status;
 	PGHOST_DRIVE_WRITER_INFO_PARAMETERS WriterInfoParams;
-	USHORT Index, i;
-	PGHOST_INFO_PROCESS_DATA ProcessInfo;
-	PVOID Buffer;
-	SIZE_T BufferSize, RequiredSize;
+	USHORT Index;
 	
-	KdPrint(("GetWriterInfo\n"));
+	KdPrint(("HandleWriterInfoRequest\n"));
 	
 	status = WdfRequestRetrieveInputBuffer(Request, sizeof(GHOST_DRIVE_WRITER_INFO_PARAMETERS), &WriterInfoParams, NULL);
 	if (!NT_SUCCESS(status)) {
@@ -613,13 +611,107 @@ void GhostDeviceControlGetWriterInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Co
 		return;
 	}
 	
-	KdPrint(("Block: %d\n", WriterInfoParams->Block)); // TODO: handle
+	KdPrint(("Block: %d\n", WriterInfoParams->Block));
 	KdPrint(("Index: %d\n", WriterInfoParams->Index));
 	
 	Index = WriterInfoParams->Index;
 	if (Index >= Context->WriterInfoCount) {
 		KdPrint(("Index out of bounds\n"));
+		
+		// If this is a blocking request, forward it to the writer info queue
+		if (WriterInfoParams->Block) {
+			status = WdfRequestForwardToIoQueue(Request, Context->WriterInfoQueue);
+			if (!NT_SUCCESS(status)) {
+				KdPrint(("Forwarding to writer info queue failed: 0x%lx\n"));
+				WdfRequestComplete(Request, STATUS_INTERNAL_ERROR);
+				return;
+			}
+			
+			KdPrint(("Forwarded to writer info queue\n"));
+		}
+		else {
+			WdfRequestComplete(Request, STATUS_BUFFER_OVERFLOW);
+		}
+		
+		return;
+	}
+	
+	GhostDeviceControlGetWriterInfo(Request, Context);
+}
+
+
+void GhostDeviceControlProcessPendingWriterInfoRequests(PGHOST_DRIVE_CONTEXT Context) {
+	WDFREQUEST PreviousRequest, Request, OwnedRequest;
+	WDF_REQUEST_PARAMETERS RequestParams;
+	NTSTATUS status;
+	PGHOST_DRIVE_WRITER_INFO_PARAMETERS WriterInfoParams;
+	
+	KdPrint(("Processing pending writer info requests\n"));
+	
+	PreviousRequest = NULL;
+	Request = NULL;
+	
+	do {
+		WDF_REQUEST_PARAMETERS_INIT(&RequestParams);
+		status = WdfIoQueueFindRequest(Context->WriterInfoQueue, PreviousRequest, NULL, &RequestParams, &Request);
+		if (PreviousRequest != NULL) {
+			WdfObjectDereference(PreviousRequest);
+		}
+		
+		if (status == STATUS_NO_MORE_ENTRIES) {
+			// End of the queue
+			return;
+		}
+		else if (!NT_SUCCESS(status)) {
+			KdPrint(("Could not search writer info queue: 0x%lx\n", status));
+			return;
+		}
+		
+		// Look at the request's input parameters
+		status = WdfRequestRetrieveInputBuffer(Request, sizeof(GHOST_DRIVE_WRITER_INFO_PARAMETERS), &WriterInfoParams, NULL);
+		if (!NT_SUCCESS(status)) {
+			KdPrint(("Could not retrieve input parameters: 0x%lx\n", status));
+			continue;
+		}
+		
+		// Can we process the request now?
+		if (WriterInfoParams->Index < Context->WriterInfoCount) {
+			status = WdfIoQueueRetrieveFoundRequest(Context->WriterInfoQueue, Request, &OwnedRequest);
+			if (!NT_SUCCESS(status)) {
+				KdPrint(("Could not obtain ownership of the found request: 0x%lx\n", status));
+				continue;
+			}
+			
+			GhostDeviceControlGetWriterInfo(OwnedRequest, Context);
+		}
+		
+		PreviousRequest = Request;
+	} while (TRUE);
+}
+
+	
+void GhostDeviceControlGetWriterInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context) {
+	NTSTATUS status;
+	PGHOST_DRIVE_WRITER_INFO_PARAMETERS WriterInfoParams;
+	USHORT Index, i;
+	PGHOST_INFO_PROCESS_DATA ProcessInfo;
+	PVOID Buffer;
+	SIZE_T BufferSize, RequiredSize;
+	
+	KdPrint(("Processing writer info request\n"));
+	
+	status = WdfRequestRetrieveInputBuffer(Request, sizeof(GHOST_DRIVE_WRITER_INFO_PARAMETERS), &WriterInfoParams, NULL);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not retrieve input parameters: 0x%lx\n", status));
 		WdfRequestComplete(Request, STATUS_UNSUCCESSFUL);
+		return;
+	}
+
+	Index = WriterInfoParams->Index;
+	if (Index >= Context->WriterInfoCount) {
+		// This must not happen
+		KdPrint(("Index out of bounds, but should not be\n"));
+		WdfRequestComplete(Request, STATUS_INTERNAL_ERROR);
 		return;
 	}
 	

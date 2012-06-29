@@ -58,14 +58,14 @@ void PrintWriterInfo(PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo) {
 }
 
 
-PGHOST_DRIVE_WRITER_INFO_RESPONSE GetWriterInfo(HANDLE Device, USHORT Index) {
+PGHOST_DRIVE_WRITER_INFO_RESPONSE GetWriterInfo(HANDLE Device, USHORT Index, BOOLEAN Block) {
 	GHOST_DRIVE_WRITER_INFO_PARAMETERS WriterInfoParams;
 	BOOL result;
 	SIZE_T RequiredSize;
 	DWORD BytesReturned;
 	PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
 	
-	WriterInfoParams.Block = FALSE;
+	WriterInfoParams.Block = Block;
 	WriterInfoParams.Index = Index;
 	
 	result = DeviceIoControl(Device,
@@ -79,6 +79,7 @@ PGHOST_DRIVE_WRITER_INFO_RESPONSE GetWriterInfo(HANDLE Device, USHORT Index) {
 
 	if (result == FALSE) {
 		// Probably no more data available
+		printf("No more data\n");
 		return NULL;
 	}
 	
@@ -114,6 +115,7 @@ void mount_image(int ID) {
 	BOOL result;
 	LONG lID = ID;
 	char dosdevice[] = "\\\\.\\GhostDrive0";
+	PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
 
 	dosdevice[14] = ID + 0x30;
 
@@ -149,6 +151,30 @@ void mount_image(int ID) {
 	}
 
 	CloseHandle(hDevice);
+	
+	/*printf("Opening GhostDrive...\n");
+
+	hDevice = CreateFile(dosdevice,
+		0,
+		FILE_SHARE_READ | FILE_SHARE_WRITE,
+		NULL,
+		OPEN_EXISTING,
+		FILE_ATTRIBUTE_NORMAL,
+		NULL);
+
+	if (hDevice == INVALID_HANDLE_VALUE) {
+		printf("Error: Could not open GhostDrive: %d\n", GetLastError());
+		return;
+	}
+	
+	WriterInfo = GetWriterInfo(hDevice, 0, TRUE);
+	if (WriterInfo != NULL) {
+		PrintWriterInfo(WriterInfo);
+		free(WriterInfo);
+	}
+	else {
+		printf("Did not receive writer info\n");
+	}*/
 
 	printf("Finished\n");
 }
@@ -180,7 +206,7 @@ void umount_image(int ID) {
 		NULL);
 
 	if (hDevice != INVALID_HANDLE_VALUE) {
-		printf("Sending umount command...\n");
+		printf("Querying write state...\n");
 
 		result = DeviceIoControl(hDevice,
 			IOCTL_GHOST_DRIVE_UMOUNT_IMAGE,
@@ -203,7 +229,7 @@ void umount_image(int ID) {
 				printf("Querying writer info...\n");
 				
 				for (i = 0; i < MAX_NUM_WRITER_INFO; i++) {
-					WriterInfo = GetWriterInfo(hDevice, i);
+					WriterInfo = GetWriterInfo(hDevice, i, FALSE);
 					if (WriterInfo != NULL) {
 						PrintWriterInfo(WriterInfo);
 						free(WriterInfo);
