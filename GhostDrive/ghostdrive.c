@@ -201,21 +201,23 @@ NTSTATUS GhostDriveDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 	WdfDeviceSetCharacteristics(Device, FILE_REMOVABLE_MEDIA | FILE_DEVICE_SECURE_OPEN);
 
 	// Register device interfaces
-	status = WdfDeviceCreateDeviceInterface(Device, &GUID_DEVINTERFACE_USBSTOR, NULL);
+	/*status = WdfDeviceCreateDeviceInterface(Device, &GUID_DEVINTERFACE_USBSTOR, NULL);
 	if (!NT_SUCCESS(status)) {
 		KdPrint(("GhostDrive: Could not register for device interface USBSTOR\n"));
 		return status;
-	}
+	}*/
 	status = WdfDeviceCreateDeviceInterface(Device, &GUID_DEVINTERFACE_DISK, NULL);
 	if (!NT_SUCCESS(status)) {
 		KdPrint(("GhostDrive: Could not register for device interface DISK\n"));
 		return status;
 	}
+#if (NTDDI_VERSION < NTDDI_VISTA)
 	status = WdfDeviceCreateDeviceInterface(Device, &MOUNTDEV_MOUNTED_DEVICE_GUID, NULL);
 	if (!NT_SUCCESS(status)) {
 		KdPrint(("GhostDrive: Could not register for mount manager device interface\n"));
 		return status;
 	}
+#endif
 
 	KdPrint(("DeviceAdd finished\n"));
 	return status;
