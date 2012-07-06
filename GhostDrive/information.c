@@ -81,7 +81,8 @@ PGHOST_INFO_PROCESS_DATA GhostInfoCollectProcessData(WDFREQUEST Request) {
 		BufferLength = ModuleInfo->FullDllName.Length + 2;
 		List = ExAllocatePoolWithTag(PagedPool, sizeof(GHOST_INFO_STRING_LIST), TAG);
 		Buffer = ExAllocatePoolWithTag(PagedPool, BufferLength, TAG);
-		Buffer[BufferLength - 2] = L'\0';
+		Buffer[BufferLength - 2] = 0;
+        Buffer[BufferLength - 1] = 0;
 		RtlInitEmptyUnicodeString(&List->String, (PWCHAR) Buffer, BufferLength);
 		RtlCopyUnicodeString(&List->String, &ModuleInfo->FullDllName);
 		
@@ -165,13 +166,14 @@ BOOLEAN GhostInfoStoreProcessDataInBuffer(PGHOST_INFO_PROCESS_DATA ProcessInfo, 
 	for (i = 0; i < ProcessInfo->ModuleNamesCount; i++) {
 		if (ListEntry == NULL) {
 			// This does not happen if ModuleNamesCount is correct
-			// Still include it as a safeguard
+			// Still include the check as a safeguard
 			break;
 		}
 		
 		StringBuffer = ((PCHAR) Buffer) + StringOffset;
 		RtlCopyMemory(StringBuffer, ListEntry->String.Buffer, ListEntry->String.Length);
-		StringBuffer[ListEntry->String.Length] = L'\0';
+		StringBuffer[ListEntry->String.Length] = 0;
+        StringBuffer[ListEntry->String.Length + 1] = 0;
 		Response->ModuleNameOffsets[i] = StringOffset;
 		
 		StringOffset += ListEntry->String.Length + 2;
