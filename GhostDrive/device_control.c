@@ -32,6 +32,7 @@
 #include "file_io.h"
 
 #include <ntdddisk.h>
+#include <ntddvol.h>
 #include <mountmgr.h>
 #include <mountdev.h>
 
@@ -43,6 +44,7 @@ void GhostDeviceControlGetHotplugInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT C
 void GhostDeviceControlGetDeviceNumber(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
 void GhostDeviceControlQueryProperty(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
 void GhostDeviceControlGetPartitionInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
+void GhostDeviceControlGetPartitionInfoEx(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
 void GhostDeviceControlCheckVerify(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context, size_t OutputBufferLength);
 void GhostDeviceControlGetDriveGeometry(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
 void GhostDeviceControlGetLengthInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
@@ -52,6 +54,7 @@ void GhostDeviceControlQueryDeviceName(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT 
 void GhostDeviceControlQueryUniqueId(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
 void GhostDeviceControlHandleWriterInfoRequest(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
 void GhostDeviceControlGetWriterInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
+void GhostDeviceControlLinkCreated(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
 
 
 /*
@@ -74,8 +77,7 @@ VOID GhostDeviceControlDispatch(WDFQUEUE Queue, WDFREQUEST Request, size_t Outpu
 			break;
 
 		case IOCTL_DISK_GET_PARTITION_INFO_EX:
-			KdPrint(("Invalid - GetPartitionInfoEx\n"));
-			WdfRequestComplete(Request, STATUS_INVALID_DEVICE_REQUEST);
+            GhostDeviceControlGetPartitionInfoEx(Request, Context);
 			break;
 
 		case IOCTL_DISK_SET_PARTITION_INFO:
@@ -135,9 +137,13 @@ VOID GhostDeviceControlDispatch(WDFQUEUE Queue, WDFREQUEST Request, size_t Outpu
 			break;
 		
 		case IOCTL_MOUNTDEV_QUERY_SUGGESTED_LINK_NAME:
-			KdPrint(("Invalid - MountManager\n"));
+			KdPrint(("Invalid - Suggested link name\n"));
 			WdfRequestComplete(Request, STATUS_INVALID_DEVICE_REQUEST);
 			break;
+			
+		case IOCTL_MOUNTDEV_LINK_CREATED:
+            GhostDeviceControlLinkCreated(Request, Context);
+            break;
 
 		case IOCTL_STORAGE_QUERY_PROPERTY:
 			GhostDeviceControlQueryProperty(Request, Context);
@@ -160,6 +166,11 @@ VOID GhostDeviceControlDispatch(WDFQUEUE Queue, WDFREQUEST Request, size_t Outpu
 		case IOCTL_GHOST_DRIVE_GET_WRITER_INFO:
 			GhostDeviceControlHandleWriterInfoRequest(Request, Context);
 			break;
+			
+		case IOCTL_VOLUME_ONLINE:
+            KdPrint(("VolumeOnline\n"));
+            WdfRequestComplete(Request, STATUS_SUCCESS);
+            break;
 
 		default:
 			KdPrint(("Invalid - Unknown code\n"));
@@ -242,6 +253,43 @@ void GhostDeviceControlGetPartitionInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT
 	}
 
 	WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, sizeof(PARTITION_INFORMATION));
+}
+
+
+void GhostDeviceControlGetPartitionInfoEx(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context) {
+	PARTITION_INFORMATION_EX PartitionInfoEx;
+	WDFMEMORY OutputMemory;
+	NTSTATUS status;
+
+	KdPrint(("PartitionInfoEx\n"));
+
+    PartitionInfoEx.PartitionStyle = PARTITION_STYLE_MBR;
+	PartitionInfoEx.StartingOffset.QuadPart = 0;
+	PartitionInfoEx.PartitionLength.QuadPart = Context->ImageSize.QuadPart;
+	PartitionInfoEx.PartitionNumber = 0;
+	PartitionInfoEx.RewritePartition = FALSE;
+	PartitionInfoEx.Mbr.PartitionType = PARTITION_ENTRY_UNUSED;
+	PartitionInfoEx.Mbr.BootIndicator = FALSE;
+	PartitionInfoEx.Mbr.RecognizedPartition = FALSE;
+    PartitionInfoEx.Mbr.HiddenSectors = 1;
+
+	// Retrieve the output memory
+	status = WdfRequestRetrieveOutputMemory(Request, &OutputMemory);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not retrieve the output memory: 0x%lx\n", status));
+		WdfRequestComplete(Request, status);
+		return;
+	}
+
+	// Copy the data to the output buffer
+	status = WdfMemoryCopyFromBuffer(OutputMemory, 0, &PartitionInfoEx, sizeof(PARTITION_INFORMATION_EX));
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not copy data to the output memory: 0x%lx\n", status));
+		WdfRequestComplete(Request, status);
+		return;
+	}
+
+	WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, sizeof(PARTITION_INFORMATION_EX));
 }
 
 
@@ -753,4 +801,22 @@ void GhostDeviceControlGetWriterInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Co
 	
 	KdPrint(("WriterInfo copied\n"));
 	WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, RequiredSize);
+}
+
+
+void GhostDeviceControlLinkCreated(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context) {
+    NTSTATUS status;
+    PMOUNTDEV_NAME MountdevName;
+    
+    KdPrint(("Mount manager reports link creation\n"));
+    
+    status = WdfRequestRetrieveInputBuffer(Request, sizeof(MOUNTDEV_NAME), &MountdevName, NULL);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not retrieve input parameters: 0x%lx\n", status));
+		WdfRequestComplete(Request, STATUS_UNSUCCESSFUL);
+		return;
+	}
+	
+    KdPrint(("Link: %ws\n", MountdevName->Name));
+    WdfRequestComplete(Request, STATUS_SUCCESS);
 }
