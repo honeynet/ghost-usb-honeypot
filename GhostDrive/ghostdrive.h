@@ -36,8 +36,13 @@
 
 #define DRIVE_DEVICE_NAME L"\\Device\\GhostDrive0"
 #define DRIVE_LINK_NAME L"\\DosDevices\\GhostDrive0"
-// TODO: Refine permissions
 #define DEVICE_SDDL_STRING L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;BU)"
+
+/*
+ * Uncomment the following line in order to use the image file name
+ * defined below rather than the one that is stored in the registry.
+ */
+// #define USE_FIXED_IMAGE_NAME
 #define IMAGE_NAME L"\\DosDevices\\C:\\gd0.img"
 
 #define TAG 'rDhG'

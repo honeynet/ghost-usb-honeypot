@@ -117,6 +117,7 @@ void GhostInfoFreeProcessData(PGHOST_INFO_PROCESS_DATA ProcessInfo) {
 	while (ProcessInfo->ModuleNames != NULL) {
 		List = ProcessInfo->ModuleNames;
 		ProcessInfo->ModuleNames = List->Next;
+        ExFreePoolWithTag(List->String.Buffer, TAG);
 		ExFreePoolWithTag(List, TAG);
 	}
 	

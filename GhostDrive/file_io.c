@@ -77,7 +77,7 @@ NTSTATUS GhostFileIoMountImage(WDFDEVICE Device, PUNICODE_STRING ImageName, PLAR
 						NULL,
 						0);
 	if (!NT_SUCCESS(status)) {
-		KdPrint(("Could not create or open the image file %ws", ImageName->Buffer));
+		KdPrint(("Could not create or open the image file %wZ", &ImageName));
 		return status;
 	}
 
@@ -115,7 +115,7 @@ NTSTATUS GhostFileIoMountImage(WDFDEVICE Device, PUNICODE_STRING ImageName, PLAR
 						FileEndOfFileInformation);
 
 		if (!NT_SUCCESS(status)) {
-			KdPrint(("Could not set the new file's size\n"));
+			KdPrint(("Could not set the new file's size: 0x%lx\n", status));
 			ZwClose(Context->ImageFile);
 			return status;
 		}

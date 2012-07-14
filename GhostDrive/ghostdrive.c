@@ -1,6 +1,6 @@
 /*
  * Ghost - A honeypot for USB malware
- * Copyright (C) 2011-2012  Sebastian Poeplau (sebastian.poeplau@gmail.com)
+ * Copyright (C) 2011-2012	Sebastian Poeplau (sebastian.poeplau@gmail.com)
  * 
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,6 +33,7 @@
 
 #include <initguid.h>
 #include <ntdddisk.h>
+#include <ntstrsafe.h>
 #include <mountmgr.h>
 
 
@@ -44,7 +45,7 @@ EVT_WDF_DRIVER_UNLOAD GhostDriveUnload;
 EVT_WDF_OBJECT_CONTEXT_CLEANUP GhostDriveDeviceCleanup;
 EVT_WDF_DEVICE_QUERY_REMOVE GhostDriveQueryRemove;
 
-NTSTATUS GhostDriveMountImage(WDFDEVICE Device, PUNICODE_STRING ImageName, PLARGE_INTEGER ImageSize);
+NTSTATUS GhostDriveInitImage(WDFDEVICE Device, ULONG ID);
 
 
 /*
@@ -84,16 +85,13 @@ NTSTATUS GhostDriveDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 	WDF_PNPPOWER_EVENT_CALLBACKS PnpPowerCallbacks;
 	WCHAR devname[] = DRIVE_DEVICE_NAME;
 	WCHAR linkname[] = DRIVE_LINK_NAME;
-	WCHAR imagename[] = IMAGE_NAME;
 	DECLARE_CONST_UNICODE_STRING(DeviceSDDL, DEVICE_SDDL_STRING);
 	UNICODE_STRING DeviceName;
 	UNICODE_STRING LinkName;
-	UNICODE_STRING FileToMount;
 	PGHOST_DRIVE_CONTEXT Context;
 	WDF_IO_QUEUE_CONFIG QueueConfig;
 	ULONG ID, Length;
 	const GUID GUID_DEVINTERFACE_USBSTOR = {0xA5DCBF10L, 0x6530, 0x11D2, {0x90, 0x1F, 0x00, 0xC0, 0x4F, 0xB9, 0x51, 0xED}};
-	LARGE_INTEGER FileSize;
 
 	KdPrint(("DeviceAdd called\n"));
 
@@ -189,10 +187,7 @@ NTSTATUS GhostDriveDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 	}
 
 	// Mount the image
-	imagename[17] = (WCHAR)(ID + 0x30);
-	RtlInitUnicodeString(&FileToMount, imagename);
-	FileSize.QuadPart = 100 * 1024 * 1024;
-	status = GhostFileIoMountImage(Device, &FileToMount, &FileSize);
+	status = GhostDriveInitImage(Device, ID);
 	if (!NT_SUCCESS(status)) {
 		KdPrint(("Mount failed\n"));
 		return status;
@@ -273,8 +268,94 @@ NTSTATUS GhostDriveQueryRemove(WDFDEVICE Device) {
 	WdfIoQueuePurgeSynchronously(Context->WriterInfoQueue);
 	
 	if (!NT_SUCCESS(GhostFileIoUmountImage(Device))) {
-        KdPrint(("Could not unmount the image\n"));
+		KdPrint(("Could not unmount the image\n"));
 	}
 	
 	return STATUS_SUCCESS;
+}
+
+
+NTSTATUS GhostDriveInitImage(WDFDEVICE Device, ULONG ID) {
+	WCHAR imagename[] = IMAGE_NAME;
+	LARGE_INTEGER FileSize;
+	UNICODE_STRING FileToMount, RegValue;
+	NTSTATUS status;
+	WDFKEY ParametersKey;
+	DECLARE_CONST_UNICODE_STRING(ValueName, L"ImageFileName");
+	USHORT ByteLength = 0;
+	PWCHAR Buffer;
+	int i;
+	PCWSTR Prefix = L"\\DosDevices\\";
+	size_t PrefixLength;
+	
+#ifndef USE_FIXED_IMAGE_NAME
+	KdPrint(("Reading the image file name from the registry\n"));
+	
+	/* Read the desired image file name from the registry */
+	status = WdfDriverOpenParametersRegistryKey(WdfGetDriver(), GENERIC_READ,
+		WDF_NO_OBJECT_ATTRIBUTES, &ParametersKey);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not open the driver's registry key\n"));
+		return status;
+	}
+	
+	status = WdfRegistryQueryUnicodeString(ParametersKey, &ValueName, &ByteLength, NULL);
+	if (status != STATUS_BUFFER_OVERFLOW && !NT_SUCCESS(status)) {
+		KdPrint(("Could not obtain the length of the image file name from the registry\n"));
+		return status;
+	}
+	
+	Buffer = ExAllocatePoolWithTag(NonPagedPool, ByteLength, TAG);
+	RtlInitEmptyUnicodeString(&RegValue, Buffer, ByteLength);
+	
+	status = WdfRegistryQueryUnicodeString(ParametersKey, &ValueName, NULL, &RegValue);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not read the image file name from the registry\n"));
+		return status;
+	}	 
+	
+	WdfRegistryClose(ParametersKey);
+	
+	/* Set the correct ID in the file name */
+	for (i = 0; i < RegValue.Length; i++) {
+		if (RegValue.Buffer[i] == L'0') {
+			KdPrint(("Inserting ID into device name\n"));
+			RegValue.Buffer[i] = (WCHAR)(ID + 0x30);
+			break;
+		}
+	}
+	
+	/* Add the required "\DosDevices" prefix */
+	PrefixLength = wcslen(Prefix) * sizeof(WCHAR);
+	Buffer = ExAllocatePoolWithTag(NonPagedPool, ByteLength + PrefixLength, TAG);
+	RtlInitEmptyUnicodeString(&FileToMount, Buffer, ByteLength + PrefixLength);
+	status = RtlUnicodeStringCopyString(&FileToMount, Prefix);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("String copy operation failed\n"));
+		return status;
+	}
+	status = RtlUnicodeStringCat(&FileToMount, &RegValue);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("String copy operation failed\n"));
+		return status;
+	}
+	
+	ExFreePoolWithTag(RegValue.Buffer, TAG);
+#else
+	KdPrint(("Using the image file name that is compiled into the driver\n"));
+	
+	/* Use the fixed image file name */
+	imagename[17] = (WCHAR)(ID + 0x30);
+	RtlInitUnicodeString(&FileToMount, imagename);
+#endif
+	
+	FileSize.QuadPart = 100 * 1024 * 1024;
+	KdPrint(("Image file name: %wZ\n", &FileToMount));
+	status = GhostFileIoMountImage(Device, &FileToMount, &FileSize);
+	
+#ifndef USE_FIXED_IMAGE_NAME
+	ExFreePoolWithTag(FileToMount.Buffer, TAG);
+#endif
+	
+	return status;
 }

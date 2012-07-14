@@ -75,6 +75,11 @@ ServiceType = 1
 StartType = 3
 ErrorControl = 1
 ServiceBinary = %12%\ghostDrive.sys
+AddReg = GhostDriveParameters
+
+
+[GhostDriveParameters]
+HKR,Parameters,"ImageFileName",,"C:\gd0.img"
 
 
 [GhostDriveDevice.CoInstallers]
