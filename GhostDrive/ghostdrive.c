@@ -316,15 +316,6 @@ NTSTATUS GhostDriveInitImage(WDFDEVICE Device, ULONG ID) {
 	
 	WdfRegistryClose(ParametersKey);
 	
-	/* Set the correct ID in the file name */
-	for (i = 0; i < RegValue.Length; i++) {
-		if (RegValue.Buffer[i] == L'0') {
-			KdPrint(("Inserting ID into device name\n"));
-			RegValue.Buffer[i] = (WCHAR)(ID + 0x30);
-			break;
-		}
-	}
-	
 	/* Add the required "\DosDevices" prefix */
 	PrefixLength = wcslen(Prefix) * sizeof(WCHAR);
 	Buffer = ExAllocatePoolWithTag(NonPagedPool, ByteLength + PrefixLength, TAG);
@@ -345,9 +336,17 @@ NTSTATUS GhostDriveInitImage(WDFDEVICE Device, ULONG ID) {
 	KdPrint(("Using the image file name that is compiled into the driver\n"));
 	
 	/* Use the fixed image file name */
-	imagename[17] = (WCHAR)(ID + 0x30);
 	RtlInitUnicodeString(&FileToMount, imagename);
-#endif
+#endif	
+	
+	/* Set the correct ID in the file name */
+	for (i = 0; i < FileToMount.Length; i++) {
+		if (FileToMount.Buffer[i] == L'0') {
+			KdPrint(("Inserting ID into device name\n"));
+			FileToMount.Buffer[i] = (WCHAR)(ID + 0x30);
+			break;
+		}
+	}
 	
 	FileSize.QuadPart = 100 * 1024 * 1024;
 	KdPrint(("Image file name: %wZ\n", &FileToMount));

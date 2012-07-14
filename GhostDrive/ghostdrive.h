@@ -41,6 +41,8 @@
 /*
  * Uncomment the following line in order to use the image file name
  * defined below rather than the one that is stored in the registry.
+ * The file name must contain a '0' (zero), which is replaced with
+ * the device ID.
  */
 // #define USE_FIXED_IMAGE_NAME
 #define IMAGE_NAME L"\\DosDevices\\C:\\gd0.img"
