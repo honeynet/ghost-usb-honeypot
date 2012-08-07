@@ -31,6 +31,7 @@
 
 
 static PGHOST_DEVICE GlobalDeviceList = NULL;
+static CRITICAL_SECTION CriticalSection;
 
 
 static PGHOST_DEVICE _DeviceListFind(int DeviceID, int RemoveFromList);
@@ -56,7 +57,7 @@ static void _FreeDevice(PGHOST_DEVICE Device) {
 
 
 void DeviceListInit() {
-	return;
+	InitializeCriticalSection(&CriticalSection);
 }
 
 
@@ -64,12 +65,17 @@ void DeviceListDestroy() {
 	PGHOST_DEVICE Device, NextDevice;
 	PGHOST_INCIDENT Incident, NextIncident;
 	
+	EnterCriticalSection(&CriticalSection);
+	
 	Device = GlobalDeviceList;
 	while (Device != NULL) {
 		NextDevice = Device->Next;
 		_FreeDevice(Device);
 		Device = NextDevice;
 	}
+	
+	LeaveCriticalSection(&CriticalSection);
+	DeleteCriticalSection(&CriticalSection);
 }
 
 
@@ -84,13 +90,17 @@ PGHOST_DEVICE DeviceListCreateDevice(int DeviceID) {
 
 
 void DeviceListAdd(PGHOST_DEVICE Device) {
+	EnterCriticalSection(&CriticalSection);
 	Device->Next = GlobalDeviceList;
 	GlobalDeviceList = Device;
+	LeaveCriticalSection(&CriticalSection);
 }
 
 
 static PGHOST_DEVICE _DeviceListFind(int DeviceID, int RemoveFromList) {
 	PGHOST_DEVICE Device, PreviousDevice;
+	
+	EnterCriticalSection(&CriticalSection);
 	
 	PreviousDevice = NULL;
 	Device = GlobalDeviceList;
@@ -107,14 +117,15 @@ static PGHOST_DEVICE _DeviceListFind(int DeviceID, int RemoveFromList) {
 				Device->Next = NULL;
 			}
 			
-			return Device;
+			break;
 		}
 		
 		PreviousDevice = Device;
 		Device = Device->Next;
 	}
 	
-	return NULL;
+	LeaveCriticalSection(&CriticalSection);
+	return Device;
 }
 
 
