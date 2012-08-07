@@ -164,6 +164,8 @@ VOID GhostBusDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBuff
 	GHOST_DRIVE_IDENTIFICATION Identification;
 	WDFCHILDLIST ChildList;
 	PLONG pID;
+	LONG ID;
+	ULONG_PTR info = 0;
 	NTSTATUS status = STATUS_INVALID_DEVICE_REQUEST;
 
 	KdPrint(("DeviceControl called\n"));
@@ -183,9 +185,45 @@ VOID GhostBusDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBuff
 
 		// Inform the PnP manager of a new device being plugged in
 		ChildList = WdfFdoGetDefaultChildList(WdfIoQueueGetDevice(Queue));
-
 		WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER_INIT(&Identification.Header, sizeof(Identification));
-		Identification.Id = *pID;
+
+		// If the requested device ID is the special value -1, then we look for a free device ID
+		ID = *pID;
+		if (ID == -1) {
+			int i;
+			WDF_CHILD_LIST_ITERATOR Iterator;
+			WDF_CHILD_RETRIEVE_INFO ChildInfo;
+			WDFDEVICE Device;
+			
+			WDF_CHILD_RETRIEVE_INFO_INIT(&ChildInfo, &Identification.Header);
+			WDF_CHILD_LIST_ITERATOR_INIT(&Iterator, WdfRetrieveAllChildren);
+			WdfChildListBeginIteration(ChildList, &Iterator);
+			
+			for (i = 0; i < GHOST_DRIVE_MAX_NUM; i++) {
+				Identification.Id = i;
+				
+				status = WdfChildListRetrieveNextDevice(ChildList, &Iterator, &Device, &ChildInfo);
+				if (status == STATUS_NO_MORE_ENTRIES) {
+					KdPrint(("Device ID %d is free\n", i));
+					ID = i;
+					break;
+				}
+				else if (!NT_SUCCESS(status)) {
+					KdPrint(("Could not retrieve child device\n"));
+				}
+			}
+			
+			WdfChildListEndIteration(ChildList, &Iterator);
+			
+			// If we didn't find a free ID, then fail
+			if (ID == -1) {
+				KdPrint(("No free ID\n"));
+				status = STATUS_UNSUCCESSFUL;
+				break;
+			}
+		}
+		
+		Identification.Id = ID;
 
 		status = WdfChildListAddOrUpdateChildDescriptionAsPresent(ChildList, &Identification.Header, NULL);
 		if (!NT_SUCCESS(status)) {
@@ -193,7 +231,17 @@ VOID GhostBusDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBuff
 			status = STATUS_INTERNAL_ERROR;
 			break;
 		}
-
+		
+		// Write the device's ID to the output buffer
+		status = WdfRequestRetrieveInputBuffer(Request, sizeof(LONG), &pID, NULL);
+		if (!NT_SUCCESS(status)) {
+			KdPrint(("Could not retrieve the output buffer\n"));
+			break;
+		}
+		
+		*pID = ID;
+		info = sizeof(LONG);
+		
 		status = STATUS_SUCCESS;
 		break;
 
@@ -234,7 +282,7 @@ VOID GhostBusDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBuff
 
 	}
 
-	WdfRequestComplete(Request, status);
+	WdfRequestCompleteWithInformation(Request, status, info);
 }
 
 

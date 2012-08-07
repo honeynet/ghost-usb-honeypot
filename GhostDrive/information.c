@@ -25,6 +25,8 @@
  * 
  */
 
+#include <ntifs.h>
+
 #include "information.h"
 #include "ghostdrive_io.h"
 #include "ghostdrive.h"
@@ -47,19 +49,7 @@ PGHOST_INFO_PROCESS_DATA GhostInfoCollectProcessData(WDFREQUEST Request) {
 		KdPrint(("CollectProcessData called at IRQL > passive\n"));
 		return NULL;
 	}
-	
-	// "System" is not a real process...
-	if (PsGetCurrentProcessId() == (HANDLE) 4) {
-		KdPrint(("CollectProcessData called by SYSTEM\n"));
-		KdPrint(("Thread ID: %d\n", PsGetCurrentThreadId()));
-		return NULL;
-	}
-	
-	// Find the list of loaded modules
-	Process = PsGetCurrentProcess();
-	Peb = PsGetProcessPeb(Process);
-	LoadedModules = &Peb->LoaderData->LoadedModules;
-	
+
 	// Allocate memory to store the information
 	ProcessInfo = ExAllocatePoolWithTag(PagedPool, sizeof(GHOST_INFO_PROCESS_DATA), TAG);
 	ProcessInfo->ProcessId = PsGetCurrentProcessId();
@@ -69,6 +59,18 @@ PGHOST_INFO_PROCESS_DATA GhostInfoCollectProcessData(WDFREQUEST Request) {
 
 	KdPrint(("Process ID: %d\n", ProcessInfo->ProcessId));
 	KdPrint(("Thread ID: %d\n", ProcessInfo->ThreadId));
+	
+	// "System" is not a real process...
+	if (PsGetCurrentProcessId() == (HANDLE) 4) {
+		KdPrint(("CollectProcessData called by SYSTEM\n"));
+		KdPrint(("Thread ID: %d\n", PsGetCurrentThreadId()));
+		return ProcessInfo;
+	}
+	
+	// Find the list of loaded modules
+	Process = PsGetCurrentProcess();
+	Peb = PsGetProcessPeb(Process);
+	LoadedModules = &Peb->LoaderData->LoadedModules;
 	
 	// Iterate through the list and copy the interesting information
 	ModuleInfo = (PLDR_DATA_TABLE_ENTRY) LoadedModules->Flink;

@@ -63,6 +63,8 @@ typedef struct _GHOST_DRIVE_IDENTIFICATION {
 #define GHOST_DRIVE_DESCRIPTION L"GhostDrive"
 #define GHOST_DRIVE_LOCATION L"GhostBus virtual bus"
 
+#define GHOST_DRIVE_MAX_NUM 10
+
 
 
 #endif
