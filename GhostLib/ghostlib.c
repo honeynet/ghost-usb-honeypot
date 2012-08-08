@@ -51,12 +51,10 @@ static const char *ErrorDescriptions[] = {
 BOOL WINAPI DllMain(HINSTANCE hinstDll, DWORD fdwReason, LPVOID lpvReserved) {
 	switch (fdwReason) {
 		case DLL_PROCESS_ATTACH:
-			printf("Attach\n");
 			DeviceListInit();
 			break;
 			
 		case DLL_PROCESS_DETACH:
-			printf("Detach\n");
 			DeviceListDestroy();
 			break;
 	}
