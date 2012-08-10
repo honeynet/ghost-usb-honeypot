@@ -27,16 +27,89 @@
 
 #include <version.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <windows.h>
 #include <newdev.h>
+#include <cfgmgr32.h>
 #include <ghostlib.h>
+
+
+/*
+ * Enumerate all devices and find out if a device with the given
+ * hardware ID is currently present. If WasPresent is not NULL,
+ * then also find out whether such a device has been present before
+ * and write the result to WasPresent.
+ */
+BOOL IsDevicePresent(const char *HardwareID, BOOL *WasPresent) {
+	HDEVINFO DevInfoSet;
+	SP_DEVINFO_DATA DevInfoData;
+	DWORD DeviceIndex;
+	BOOL Present = FALSE, PresentBefore = FALSE;
+	
+	// Create a list of all devices
+	DevInfoSet = SetupDiGetClassDevs(NULL, NULL, NULL, DIGCF_ALLCLASSES);
+	if (DevInfoSet == INVALID_HANDLE_VALUE) {
+		printf("Error: Could not enumerate devices (0x%x)\n", GetLastError());
+		exit(-1);
+	}
+	
+	// Iterate through the list
+	ZeroMemory(&DevInfoData, sizeof(SP_DEVINFO_DATA));
+	DevInfoData.cbSize = sizeof(SP_DEVINFO_DATA);
+	DeviceIndex = 0;
+	while (SetupDiEnumDeviceInfo(DevInfoSet, DeviceIndex, &DevInfoData)) {
+		DWORD RequiredBufferSize;
+		char *Buffer;
+		ULONG Status, ProblemNumber;
+		
+		DeviceIndex++;
+		
+		// Find the device's hardware ID
+		if (!SetupDiGetDeviceRegistryProperty(DevInfoSet, &DevInfoData, SPDRP_HARDWAREID, NULL, NULL, 0, &RequiredBufferSize)) {
+			if (GetLastError() == ERROR_INVALID_DATA) {
+				continue;
+			}
+			if (GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
+				printf("Error: Could not retrieve a device's hardware ID (0x%x)\n", GetLastError());
+				exit(-1);
+			}
+		}
+		
+		Buffer = malloc(RequiredBufferSize);
+		if (!SetupDiGetDeviceRegistryProperty(DevInfoSet, &DevInfoData, SPDRP_HARDWAREID, NULL, Buffer, RequiredBufferSize, NULL)) {
+			printf("Error: Could not retrieve a device's hardware ID (0x%x)\n", GetLastError());
+			exit(-1);
+		}
+		
+		// Buffer contains multiple strings, but the device we're looking for
+		// has only one ID, so we just compare the first string.
+		if (strncmp(HardwareID, Buffer, strlen(HardwareID)) != 0) {
+			continue;
+		}
+		
+		PresentBefore = TRUE;
+		
+		// Check whether the device is still present
+		if (CM_Get_DevNode_Status(&Status, &ProblemNumber, DevInfoData.DevInst, 0) != CR_NO_SUCH_DEVINST) {
+			Present = TRUE;
+			break;
+		}
+	}
+	
+	SetupDiDestroyDeviceInfoList(DevInfoSet);
+	
+	if (WasPresent != NULL) {
+		*WasPresent = PresentBefore;
+	}
+	return Present;
+}
 
 
 int __cdecl main(int argc, char *argv[]) {
 	TCHAR BusInfFile[MAX_PATH];
 	TCHAR DriveInfFile[MAX_PATH];
 	DWORD res;
-	BOOL NeedRestart = FALSE, TempBool;
+	BOOL NeedRestart = FALSE, TempBool = FALSE, DeviceWasPresent, DeviceIsPresent, Error = FALSE;
 	int GhostID;
 	
 	printf("Ghost version %s installer\n", GHOST_VERSION);
@@ -56,8 +129,15 @@ int __cdecl main(int argc, char *argv[]) {
 	// TODO: Get WDF files
 	
 	printf("Updating the bus driver...\n");
-	// TODO: remove INSTALLFLAG_FORCE
-	if (UpdateDriverForPlugAndPlayDevices(NULL, TEXT("root\\ghostbus"), BusInfFile, INSTALLFLAG_FORCE, &TempBool) == TRUE) {
+	if (!IsDevicePresent("root\\ghostbus", NULL)) {
+		printf("No bus device present - creating one...\n");
+		// TODO
+		return -1;
+		//
+	}
+	
+	// Update the driver
+	if (UpdateDriverForPlugAndPlayDevices(NULL, TEXT("root\\ghostbus"), BusInfFile, 0, &TempBool) == TRUE) {
 		printf("Bus driver updated\n");
 	}
 	else {
@@ -71,12 +151,11 @@ int __cdecl main(int argc, char *argv[]) {
 				return -1;
 				break;
 			case ERROR_NO_SUCH_DEVINST:
-				printf("No bus device present - creating one...\n");
-				// TODO
+				printf("Error: No bus device present\n");
+				return -1;
 				break;
 			case ERROR_NO_MORE_ITEMS:
-				printf("Error: Your driver is newer than this one\n");
-				return -1;
+				printf("Your bus driver is newer than this one\n");
 				break;
 			default:
 				printf("Error: Could not update the bus driver\n");
@@ -89,40 +168,61 @@ int __cdecl main(int argc, char *argv[]) {
 	
 	printf("Updating the function driver\n");
 	
-	// TODO: find out whether first install and handle
-	
-	// TODO: remove INSTALLFLAG_FORCE
-	if (UpdateDriverForPlugAndPlayDevices(NULL, TEXT("ghostbus\\ghostdrive"), DriveInfFile, INSTALLFLAG_FORCE, &TempBool) == TRUE) {
-		printf("Function driver updated\n");
+	// Find out whether the device is installed already
+	DeviceIsPresent = IsDevicePresent("ghostbus\\ghostdrive", &DeviceWasPresent);
+	if (DeviceWasPresent) {
+		// This is an upgrade
+		
+		// TODO: Remove old driver
+		
+		// Mount a device if none is present
+		if (!DeviceIsPresent) {
+			printf("No device mounted at the moment - mounting one...\n");
+			GhostID = GhostMountDevice(NULL, NULL);
+		}
+		
+		// Update the driver
+		if (UpdateDriverForPlugAndPlayDevices(NULL, TEXT("ghostbus\\ghostdrive"), DriveInfFile, 0, &TempBool) == TRUE) {
+			printf("Function driver updated\n");
+		}
+		else {
+			Error = TRUE;
+			switch (GetLastError()) {
+				case ERROR_FILE_NOT_FOUND:
+					printf("Error: INF file not found\n");
+					break;
+				case ERROR_IN_WOW64:
+					printf("Error: 64-bit environments are not currently supported\n");
+					break;
+				case ERROR_NO_SUCH_DEVINST:
+					printf("Error: No device present\n");
+					break;
+				case ERROR_NO_MORE_ITEMS:
+					printf("Your function driver is newer than this one\n");
+					Error = FALSE;
+					break;
+				default:
+					printf("Error: Could not update the function driver\n");
+					break;
+			}
+		}
+		
+		// Unmount the device
+		if (!DeviceIsPresent) {
+			// A little ugly, but we have to make sure that autorun is done
+			// before we can unmount the device
+			Sleep(2000);
+			GhostUmountDevice(GhostID);
+		}
+		
+		if (Error) {
+			return -1;
+		}
 	}
 	else {
-		switch (GetLastError()) {
-			case ERROR_FILE_NOT_FOUND:
-				printf("Error: INF file not found\n");
-				return -1;
-				break;
-			case ERROR_IN_WOW64:
-				printf("Error: 64-bit environments are not currently supported\n");
-				return -1;
-				break;
-			case ERROR_NO_SUCH_DEVINST:
-				printf("No device mounted at the moment - mounting one...\n");
-				GhostID = GhostMountDevice(NULL, NULL);
-				if (UpdateDriverForPlugAndPlayDevices(NULL, TEXT("ghostbus\\ghostdrive"), DriveInfFile, INSTALLFLAG_FORCE, &TempBool) == FALSE) {
-					printf("Error: Could not update the function driver\n");
-					return -1;
-				}
-				GhostUmountDevice(GhostID);
-				printf("Function driver updated\n");
-				break;
-			case ERROR_NO_MORE_ITEMS:
-				printf("Error: Your driver is newer than this one\n");
-				return -1;
-				break;
-			default:
-				printf("Error: Could not update the function driver\n");
-				return -1;
-				break;
+		// This is the first installation - just copy the driver
+		if (!SetupCopyOEMInf(DriveInfFile, NULL, SPOST_PATH, 0, NULL, 0, NULL, NULL)) {
+			printf("Error: Could not install the function driver (0x%x)\n", GetLastError());
 		}
 	}
 	
