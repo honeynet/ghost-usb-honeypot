@@ -1,13 +1,11 @@
 TARGETNAME=Setup
 TARGETTYPE=PROGRAM
 
-INCLUDES=..\GhostLib;..\GhostDrive
+INCLUDES=..\GhostDrive
 
 SOURCES=main.c
-TARGETLIBS=..\GhostLib\objchk_wxp_x86\*\GhostLib.lib \
-			$(SDK_LIB_PATH)\kernel32.lib \
+TARGETLIBS=$(SDK_LIB_PATH)\kernel32.lib \
 			$(SDK_LIB_PATH)\newdev.lib \
-			$(SDK_LIB_PATH)\cfgmgr32.lib \
 			$(SDK_LIB_PATH)\setupapi.lib
 
 USE_MSVCRT=1

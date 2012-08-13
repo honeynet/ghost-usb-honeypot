@@ -31,20 +31,34 @@
 #include <windows.h>
 #include <newdev.h>
 #include <cfgmgr32.h>
-#include <ghostlib.h>
+#include <regstr.h>
+
+#define BUS_INF_KEY "SYSTEM\\CurrentControlSet\\Services\\ghostbus\\Parameters"
+#define DRIVE_INF_KEY "SYSTEM\\CurrentControlSet\\Services\\ghostdrive\\Parameters"
+#define INF_FILE_VALUE "InfFile"
 
 
 /*
- * Enumerate all devices and find out if a device with the given
- * hardware ID is currently present. If WasPresent is not NULL,
- * then also find out whether such a device has been present before
- * and write the result to WasPresent.
+ * Device callbacks have the following signature:
+ * BOOL MyCallback(HDEVINFO DevInfoSet, PSP_DEVINFO_DATA DevInfo, BOOL IsPresent, void *Context)
+ * Return TRUE to continue enumeration and FALSE to stop.
  */
-BOOL IsDevicePresent(const char *HardwareID, BOOL *WasPresent) {
+typedef BOOL (*DeviceCallback)(HDEVINFO, PSP_DEVINFO_DATA, BOOL, void *);
+
+
+/*
+ * Enumerate all devices and invoke the callback function on devices
+ * with the specified hardware ID.
+ */
+void EnumerateDevices(const char *HardwareID, DeviceCallback Callback, void *Context) {
 	HDEVINFO DevInfoSet;
 	SP_DEVINFO_DATA DevInfoData;
 	DWORD DeviceIndex;
-	BOOL Present = FALSE, PresentBefore = FALSE;
+	
+	if (Callback == NULL) {
+		printf("Error: Invalid callback\n");
+		exit(-1);
+	}
 	
 	// Create a list of all devices
 	DevInfoSet = SetupDiGetClassDevs(NULL, NULL, NULL, DIGCF_ALLCLASSES);
@@ -61,6 +75,7 @@ BOOL IsDevicePresent(const char *HardwareID, BOOL *WasPresent) {
 		DWORD RequiredBufferSize;
 		char *Buffer;
 		ULONG Status, ProblemNumber;
+		BOOL Present = FALSE;
 		
 		DeviceIndex++;
 		
@@ -87,30 +102,96 @@ BOOL IsDevicePresent(const char *HardwareID, BOOL *WasPresent) {
 			continue;
 		}
 		
-		PresentBefore = TRUE;
-		
 		// Check whether the device is still present
 		if (CM_Get_DevNode_Status(&Status, &ProblemNumber, DevInfoData.DevInst, 0) != CR_NO_SUCH_DEVINST) {
 			Present = TRUE;
+		}
+		
+		// Invoke the callback function on the device
+		if (!Callback(DevInfoSet, &DevInfoData, Present, Context)) {
 			break;
 		}
 	}
 	
 	SetupDiDestroyDeviceInfoList(DevInfoSet);
-	
-	if (WasPresent != NULL) {
-		*WasPresent = PresentBefore;
-	}
-	return Present;
 }
 
 
+/*
+ * Callback for IsDevicePresent.
+ */
+BOOL PresentCallback(HDEVINFO DevInfoSet, PSP_DEVINFO_DATA DevInfo, BOOL IsPresent, void *Context) {
+	PBOOL Result = Context;
+	
+	if (Result == NULL) {
+		printf("Error: Invalid context\n");
+		exit(-1);
+	}
+	
+	if (IsPresent) {
+		*Result = TRUE;
+		return FALSE;
+	}
+	
+	return TRUE;
+}
+
+
+/*
+ * Find out if a device with the given hardware ID is currently present.
+ */
+BOOL IsDevicePresent(const char *HardwareID) {
+	BOOL Result = FALSE;
+	
+	EnumerateDevices(HardwareID, PresentCallback, &Result);
+	return Result;
+}
+
+
+/*
+ * Callback that marks Ghost devices for reinstall if they are not present.
+ */
+/*BOOL UpdateFunctionDriverCallback(HDEVINFO DevInfoSet, PSP_DEVINFO_DATA DevInfo, BOOL IsPresent, void *Context) {
+	DWORD ConfigFlags;
+	
+	if (IsPresent) {
+		return TRUE;
+	}
+	
+	// Mark the device for reinstall
+	if (!SetupDiGetDeviceRegistryProperty(DevInfoSet, DevInfo, SPDRP_CONFIGFLAGS, NULL, (PBYTE) &ConfigFlags, sizeof(DWORD), NULL)) {
+		printf("Error: Could not retrieve a device's config flags (0x%x)\n", GetLastError());
+		exit(-1);
+	}
+	
+	ConfigFlags |= CONFIGFLAG_REINSTALL;
+	
+	if (!SetupDiSetDeviceRegistryProperty(DevInfoSet, DevInfo, SPDRP_CONFIGFLAGS, (PBYTE) &ConfigFlags, sizeof(DWORD))) {
+		printf("Error: Could not set a device's config flags (0x%x)\n", GetLastError());
+		exit(-1);
+	}
+	
+	return TRUE;
+}*/
+
+
+
 int __cdecl main(int argc, char *argv[]) {
-	TCHAR BusInfFile[MAX_PATH];
-	TCHAR DriveInfFile[MAX_PATH];
+	char BusInfFile[MAX_PATH];
+	char DriveInfFile[MAX_PATH];
+	char DestinationInf[MAX_PATH], *DestinationInfFile = NULL;
+	char OldInf[MAX_PATH];
+	char ValueName[MAX_PATH];
+	DWORD OldInfLength, Index, ValueNameLength;
 	DWORD res;
-	BOOL NeedRestart = FALSE, TempBool = FALSE, DeviceWasPresent, DeviceIsPresent, Error = FALSE;
-	int GhostID;
+	BOOL NeedRestart = FALSE, TempBool = FALSE;
+	HKEY BusInfKey, DriveInfKey;
+	LONG Error;
+	char Class[MAX_PATH];
+	GUID ClassGuid;
+	HDEVINFO DevInfoSet;
+	SP_DEVINFO_DATA DevInfo;
+	char HardwareID[MAX_PATH];
 	
 	printf("Ghost version %s installer\n", GHOST_VERSION);
 	
@@ -128,13 +209,91 @@ int __cdecl main(int argc, char *argv[]) {
 	
 	// TODO: Get WDF files
 	
-	printf("Updating the bus driver...\n");
-	if (!IsDevicePresent("root\\ghostbus", NULL)) {
-		printf("No bus device present - creating one...\n");
-		// TODO
+	printf("Uninstalling the old bus driver...\n");
+	Error = RegOpenKey(HKEY_LOCAL_MACHINE, BUS_INF_KEY, &BusInfKey);
+	if (Error != ERROR_SUCCESS) {
+		printf("Error: Could not open the bus driver's registry key (0x%x)\n", Error);
 		return -1;
-		//
 	}
+
+	Index = 0;
+	while (1) {
+		ValueNameLength = MAX_PATH;
+		OldInfLength = MAX_PATH;
+		Error = RegEnumValue(BusInfKey, Index, ValueName, &ValueNameLength, NULL, NULL, OldInf, &OldInfLength);
+		if (Error == ERROR_NO_MORE_ITEMS) {
+			break;
+		}
+		if (Error != ERROR_SUCCESS) {
+			printf("Error: Could not read registry value (0x%x)\n", Error);
+			return -1;
+		}
+
+		if (strncmp(ValueName, INF_FILE_VALUE, MAX_PATH) == 0) {
+			if (!SetupUninstallOEMInf(OldInf, SUOI_FORCEDELETE, NULL)) {
+				printf("Error: Could not uninstall the old driver (0x%x)\n", GetLastError());
+			}
+			break;
+		}
+
+		Index++;
+	}
+	
+	printf("Installing the new bus driver...\n");
+	if (!IsDevicePresent("root\\ghostbus")) {
+		printf("No bus device present - creating one...\n");
+		
+		// Read the device class from the INF file (should be System)
+		if (!SetupDiGetINFClass(BusInfFile, &ClassGuid, Class, MAX_PATH, NULL)) {
+			printf("Error: Could not read the device class from the bus INF file (0x%x)\n", GetLastError());
+			return -1;
+		}
+		
+		// Create an empty device list
+		DevInfoSet = SetupDiCreateDeviceInfoList(&ClassGuid, NULL);
+		if (DevInfoSet == INVALID_HANDLE_VALUE) {
+			printf("Error: Could not create a device info set (0x%x)\n", GetLastError());
+			return -1;
+		}
+		
+		// Create the new device
+		DevInfo.cbSize = sizeof(SP_DEVINFO_DATA);
+		if (!SetupDiCreateDeviceInfo(DevInfoSet, Class, &ClassGuid, NULL, NULL, DICD_GENERATE_ID, &DevInfo)) {
+			printf("Error: Could not create the new device (0x%x)\n", GetLastError());
+			return -1;
+		}
+		
+		// Set the new device's hardware ID
+		ZeroMemory(HardwareID, MAX_PATH);
+		strncpy(HardwareID, "root\\ghostbus", MAX_PATH);
+		if (!SetupDiSetDeviceRegistryProperty(DevInfoSet, &DevInfo, SPDRP_HARDWAREID, HardwareID, strlen(HardwareID) + 2)) {
+			printf("Error: Could not set the new device's hardware ID (0x%x)\n", GetLastError());
+			return -1;
+		}
+		
+		// Call the class installer to register the new device
+		if (!SetupDiCallClassInstaller(DIF_REGISTERDEVICE, DevInfoSet, &DevInfo)) {
+			printf("Error: Could not register the new device (0x%x)\n", GetLastError());
+			return -1;
+		}
+		
+		SetupDiDestroyDeviceInfoList(DevInfoSet);
+	}
+	
+	// Copy the new INF file to the driver store
+	if (!SetupCopyOEMInf(BusInfFile, NULL, SPOST_PATH, 0, DestinationInf, MAX_PATH, NULL, &DestinationInfFile)) {
+		printf("Error: Could not install the bus driver (0x%x)\n", GetLastError());
+		return -1;
+	}
+
+	// Write the bus driver's INF file name to the registry
+	Error = RegSetValueEx(BusInfKey, INF_FILE_VALUE, 0, REG_SZ, DestinationInfFile, strlen(DestinationInfFile) + 1);
+	if (Error != ERROR_SUCCESS) {
+		printf("Error: Could not write the INF file name to the registry (0x%x)\n", Error);
+		return -1;
+	}
+
+	RegCloseKey(BusInfKey);
 	
 	// Update the driver
 	if (UpdateDriverForPlugAndPlayDevices(NULL, TEXT("root\\ghostbus"), BusInfFile, 0, &TempBool) == TRUE) {
@@ -166,67 +325,87 @@ int __cdecl main(int argc, char *argv[]) {
 	
 	NeedRestart |= TempBool;
 	
-	printf("Updating the function driver\n");
-	
-	// Find out whether the device is installed already
-	DeviceIsPresent = IsDevicePresent("ghostbus\\ghostdrive", &DeviceWasPresent);
-	if (DeviceWasPresent) {
-		// This is an upgrade
-		
-		// TODO: Remove old driver
-		
-		// Mount a device if none is present
-		if (!DeviceIsPresent) {
-			printf("No device mounted at the moment - mounting one...\n");
-			GhostID = GhostMountDevice(NULL, NULL);
+	printf("Uninstalling the old function driver...\n");
+	Error = RegOpenKey(HKEY_LOCAL_MACHINE, DRIVE_INF_KEY, &DriveInfKey);
+	if (Error != ERROR_SUCCESS) {
+		printf("Error: Could not open the function driver's registry key (0x%x)\n", Error);
+		return -1;
+	}
+
+	Index = 0;
+	while (1) {
+		ValueNameLength = MAX_PATH;
+		OldInfLength = MAX_PATH;
+		Error = RegEnumValue(DriveInfKey, Index, ValueName, &ValueNameLength, NULL, NULL, OldInf, &OldInfLength);
+		if (Error == ERROR_NO_MORE_ITEMS) {
+			break;
 		}
-		
-		// Update the driver
-		if (UpdateDriverForPlugAndPlayDevices(NULL, TEXT("ghostbus\\ghostdrive"), DriveInfFile, 0, &TempBool) == TRUE) {
-			printf("Function driver updated\n");
-		}
-		else {
-			Error = TRUE;
-			switch (GetLastError()) {
-				case ERROR_FILE_NOT_FOUND:
-					printf("Error: INF file not found\n");
-					break;
-				case ERROR_IN_WOW64:
-					printf("Error: 64-bit environments are not currently supported\n");
-					break;
-				case ERROR_NO_SUCH_DEVINST:
-					printf("Error: No device present\n");
-					break;
-				case ERROR_NO_MORE_ITEMS:
-					printf("Your function driver is newer than this one\n");
-					Error = FALSE;
-					break;
-				default:
-					printf("Error: Could not update the function driver\n");
-					break;
-			}
-		}
-		
-		// Unmount the device
-		if (!DeviceIsPresent) {
-			// A little ugly, but we have to make sure that autorun is done
-			// before we can unmount the device
-			Sleep(2000);
-			GhostUmountDevice(GhostID);
-		}
-		
-		if (Error) {
+		if (Error != ERROR_SUCCESS) {
+			printf("Error: Could not read registry value (0x%x)\n", Error);
 			return -1;
 		}
-	}
-	else {
-		// This is the first installation - just copy the driver
-		if (!SetupCopyOEMInf(DriveInfFile, NULL, SPOST_PATH, 0, NULL, 0, NULL, NULL)) {
-			printf("Error: Could not install the function driver (0x%x)\n", GetLastError());
+
+		if (strncmp(ValueName, INF_FILE_VALUE, MAX_PATH) == 0) {
+			if (!SetupUninstallOEMInf(OldInf, SUOI_FORCEDELETE, NULL)) {
+				printf("Error: Could not uninstall the old driver (0x%x)\n", GetLastError());
+			}
+			break;
 		}
+
+		Index++;
 	}
 	
-	NeedRestart |= TempBool;
+	printf("Installing the new function driver...\n");
+	
+	// Copy the new INF file to the driver store
+	if (!SetupCopyOEMInf(DriveInfFile, NULL, SPOST_PATH, 0, DestinationInf, MAX_PATH, NULL, &DestinationInfFile)) {
+		printf("Error: Could not install the function driver (0x%x)\n", GetLastError());
+	}
+	
+	// Write the function driver's INF file name to the registry
+	Error = RegSetValueEx(DriveInfKey, INF_FILE_VALUE, 0, REG_SZ, DestinationInfFile, strlen(DestinationInfFile) + 1);
+	if (Error != ERROR_SUCCESS) {
+		printf("Error: Could not write the INF file name to the registry (0x%x)\n", Error);
+		return -1;
+	}
+
+	RegCloseKey(DriveInfKey);
+	printf("New driver installed\n");
+	
+	/*// Update the driver
+	if (UpdateDriverForPlugAndPlayDevices(NULL, TEXT("ghostbus\\ghostdrive"), DriveInfFile, 0, &TempBool) == TRUE) {
+		printf("Function driver of present devices updated\n");
+	}
+	else {
+		switch (GetLastError()) {
+			case ERROR_FILE_NOT_FOUND:
+				printf("Error: INF file not found\n");
+				return -1;
+				break;
+			case ERROR_IN_WOW64:
+				printf("Error: 64-bit environments are not currently supported\n");
+				return -1;
+				break;
+			case ERROR_NO_SUCH_DEVINST:
+				// This is ok, because the devices' drivers will be updated the next time they're plugged in.
+				break;
+			case ERROR_NO_MORE_ITEMS:
+				printf("Your function driver is newer than this one\n");
+				break;
+			default:
+				printf("Error: Could not update the function driver\n");
+				return -1;
+				break;
+		}
+	}
+
+	NeedRestart |= TempBool;*/
+	
+	/*// Mark those devices for reinstall that are not currently present
+	printf("Marking devices for reinstall...\n");
+	EnumerateDevices("ghostbus\\ghostdrive", UpdateFunctionDriverCallback, NULL);*/
+	
+	printf("Done\n");
 	
 	if (NeedRestart) {
 		printf("You need to restart the machine!\n");
