@@ -182,7 +182,7 @@ DWORD WINAPI InfoThread(LPVOID Parameter) {
 }
 
 
-int GhostMountDevice(GhostIncidentCallback Callback, void *Context) {
+int DLLCALL GhostMountDevice(GhostIncidentCallback Callback, void *Context) {
 	HANDLE hDevice;
 	DWORD BytesReturned;
 	BOOL result;
@@ -238,7 +238,7 @@ int GhostMountDevice(GhostIncidentCallback Callback, void *Context) {
 	return DeviceID;
 }
 
-int GhostUmountDevice(int DeviceID) {
+int DLLCALL GhostUmountDevice(int DeviceID) {
 	HANDLE hDevice;
 	DWORD BytesReturned;
 	BOOL result;
@@ -282,11 +282,11 @@ int GhostUmountDevice(int DeviceID) {
 	return 0;
 }
 
-int GhostGetLastError() {
+int DLLCALL GhostGetLastError() {
 	return LastError;
 }
 
-const char *GhostGetErrorDescription(int Error) {
+const char * DLLCALL GhostGetErrorDescription(int Error) {
 	if (Error < 0 || Error >= (sizeof(ErrorDescriptions) / sizeof(char*))) {
 		return NULL;
 	}
@@ -311,7 +311,7 @@ PGHOST_INCIDENT _GetIncident(int DeviceID, int IncidentID) {
 	return NULL;
 }
 
-int GhostGetProcessID(int DeviceID, int IncidentID) {
+int DLLCALL GhostGetProcessID(int DeviceID, int IncidentID) {
 	PGHOST_INCIDENT Incident;
 	
 	Incident = _GetIncident(DeviceID, IncidentID);
@@ -322,7 +322,7 @@ int GhostGetProcessID(int DeviceID, int IncidentID) {
 	return (int) Incident->WriterInfo->ProcessId;
 }
 
-int GhostGetThreadID(int DeviceID, int IncidentID) {
+int DLLCALL GhostGetThreadID(int DeviceID, int IncidentID) {
 	PGHOST_INCIDENT Incident;
 	
 	Incident = _GetIncident(DeviceID, IncidentID);
@@ -333,7 +333,7 @@ int GhostGetThreadID(int DeviceID, int IncidentID) {
 	return (int) Incident->WriterInfo->ThreadId;
 }
 
-int GhostGetNumModules(int DeviceID, int IncidentID) {
+int DLLCALL GhostGetNumModules(int DeviceID, int IncidentID) {
 	PGHOST_INCIDENT Incident;
 	
 	Incident = _GetIncident(DeviceID, IncidentID);
@@ -344,10 +344,14 @@ int GhostGetNumModules(int DeviceID, int IncidentID) {
 	return Incident->WriterInfo->ModuleNamesCount;
 }
 
-int GhostGetModuleName(int DeviceID, int IncidentID, int ModuleIndex, wchar_t *Buffer, size_t *BufferLength) {
+int DLLCALL GhostGetModuleName(int DeviceID, int IncidentID, int ModuleIndex, wchar_t *Buffer, size_t BufferLength) {
 	PGHOST_INCIDENT Incident;
 	wchar_t *Name;
 	size_t Length;
+	/*char Debug[512];
+	
+	_snprintf(Debug, 512, "Buffer: %p, Length: %d\n", Buffer, BufferLength);
+	OutputDebugString(Debug);*/
 	
 	Incident = _GetIncident(DeviceID, IncidentID);
 	if (Incident == NULL) {
@@ -357,11 +361,10 @@ int GhostGetModuleName(int DeviceID, int IncidentID, int ModuleIndex, wchar_t *B
 	Name = (PWCHAR) ((PCHAR) Incident->WriterInfo + Incident->WriterInfo->ModuleNameOffsets[ModuleIndex]);
 	Length = wcslen(Name);
 	
-	if (Buffer == NULL || *BufferLength < Length + 1) {
-		*BufferLength = Length + 1;
+	if (Buffer == NULL || BufferLength < Length + 1) {
 		return -1;
 	}
 	
-	wcsncpy(Buffer, Name, *BufferLength);
+	wcsncpy(Buffer, Name, BufferLength);
 	return Length + 1;
 }

@@ -32,6 +32,8 @@
 
 #include <stddef.h>
 
+#define DLLCALL __stdcall
+
 
 /*
  * This is the interface of GhostLib, a library for communication
@@ -53,7 +55,7 @@
  * Incident callbacks receive the device ID, an incident ID that they can use to query
  * details and a caller-supplied pointer to give them context information.
  */
-typedef void (*GhostIncidentCallback) (int, int, void*);
+typedef void (DLLCALL *GhostIncidentCallback) (int, int, void*);
 
 /*
  * Mount a virtual USB storage device. The callback function is called
@@ -66,7 +68,7 @@ typedef void (*GhostIncidentCallback) (int, int, void*);
  * and you can obtain a description of the error using the library's
  * error handling functions.
  */
-int GhostMountDevice(GhostIncidentCallback Callback, void *Context);
+int DLLCALL GhostMountDevice(GhostIncidentCallback Callback, void *Context);
 
 /*
  * Unmount the emulated device specified by its device ID
@@ -76,7 +78,7 @@ int GhostMountDevice(GhostIncidentCallback Callback, void *Context);
  * and you can obtain a description of the error using the library's
  * error handling functions.
  */
-int GhostUmountDevice(int DeviceID);
+int DLLCALL GhostUmountDevice(int DeviceID);
 
 
 /*
@@ -90,12 +92,12 @@ int GhostUmountDevice(int DeviceID);
  * number, you can obtain a description of the error by means of
  * GhostGetErrorDescription.
  */ 
-int GhostGetLastError();
+int DLLCALL GhostGetLastError();
 
 /*
  * Retrieve a description of the given error.
  */
-const char *GhostGetErrorDescription(int Error);
+const char * DLLCALL GhostGetErrorDescription(int Error);
 
 
 /*
@@ -107,19 +109,19 @@ const char *GhostGetErrorDescription(int Error);
 /*
  * Get the process ID of the writer or -1 on error.
  */
-int GhostGetProcessID(int DeviceID, int IncidentID);
+int DLLCALL GhostGetProcessID(int DeviceID, int IncidentID);
 
 /*
  * Get the thread ID of the writer or -1 on error.
  */
-int GhostGetThreadID(int DeviceID, int IncidentID);
+int DLLCALL GhostGetThreadID(int DeviceID, int IncidentID);
 
 /*
  * Get the number of modules (program binaries and DLLs) that were
  * loaded in the writing process at the time of writing. Note that
  * the list of loaded modules is not always available.
  */
-int GhostGetNumModules(int DeviceID, int IncidentID);
+int DLLCALL GhostGetNumModules(int DeviceID, int IncidentID);
 
 /*
  * Get the name of a loaded module in the writing process. The
@@ -127,10 +129,10 @@ int GhostGetNumModules(int DeviceID, int IncidentID);
  * obtained by GhostGetNumModules) minus 1.
  *
  * The function will write the name to Buffer, copying at most
- * BufferLength wide characters. If the buffer is too short or NULL, it sets
- * BufferLength to the required buffer size (in wide characters) and returns -1. On success,
- * it returns the number of wide characters written to the buffer.
+ * BufferLength wide characters. If the buffer is too short or NULL,
+ * it returns -1. On success, it returns the number of wide characters
+ * written to the buffer.
  */
-int GhostGetModuleName(int DeviceID, int IncidentID, int ModuleIndex, wchar_t *Buffer, size_t *BufferLength);
+int DLLCALL GhostGetModuleName(int DeviceID, int IncidentID, int ModuleIndex, wchar_t *Buffer, size_t BufferLength);
 
 #endif
