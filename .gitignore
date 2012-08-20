@@ -1,3 +1,5 @@
 objchk_*
 objfre_*
 *.log
+GhostGUI/bin
+GhostGUI/obj
