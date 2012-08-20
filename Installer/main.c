@@ -210,7 +210,7 @@ int __cdecl main(int argc, char *argv[]) {
 	// TODO: Get WDF files
 	
 	printf("Uninstalling the old bus driver...\n");
-	Error = RegOpenKey(HKEY_LOCAL_MACHINE, BUS_INF_KEY, &BusInfKey);
+	Error = RegCreateKeyEx(HKEY_LOCAL_MACHINE, BUS_INF_KEY, 0, NULL, 0, KEY_ALL_ACCESS, NULL, &BusInfKey, NULL);
 	if (Error != ERROR_SUCCESS) {
 		printf("Error: Could not open the bus driver's registry key (0x%x)\n", Error);
 		return -1;
@@ -295,7 +295,7 @@ int __cdecl main(int argc, char *argv[]) {
 
 	RegCloseKey(BusInfKey);
 	
-	// Update the driver
+	// Update the bus driver
 	if (UpdateDriverForPlugAndPlayDevices(NULL, TEXT("root\\ghostbus"), BusInfFile, 0, &TempBool) == TRUE) {
 		printf("Bus driver updated\n");
 	}
@@ -326,7 +326,7 @@ int __cdecl main(int argc, char *argv[]) {
 	NeedRestart |= TempBool;
 	
 	printf("Uninstalling the old function driver...\n");
-	Error = RegOpenKey(HKEY_LOCAL_MACHINE, DRIVE_INF_KEY, &DriveInfKey);
+	Error = RegCreateKeyEx(HKEY_LOCAL_MACHINE, DRIVE_INF_KEY, 0, NULL, 0, KEY_ALL_ACCESS, NULL, &DriveInfKey, NULL);
 	if (Error != ERROR_SUCCESS) {
 		printf("Error: Could not open the function driver's registry key (0x%x)\n", Error);
 		return -1;
