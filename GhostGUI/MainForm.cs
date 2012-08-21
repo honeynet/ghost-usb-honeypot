@@ -6,11 +6,14 @@ using System.Drawing;
 using System.Linq;
 using System.Text;
 using System.Windows.Forms;
+using System.IO;
 
 namespace GhostGUI
 {
     public partial class MainForm : Form
     {
+        private const string ParamRegPath = "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\ghostdrive\\Parameters";
+        private string CurrentImageFileName;
         private List<Ghost> Ghosts = new List<Ghost>();
         private Ghost MainGhost;
         private delegate void ViewUpdater();
@@ -141,6 +144,51 @@ namespace GhostGUI
             radioButtonManual.Enabled = true;
 
             timerGhost.Start();
+        }
+
+        private void MainForm_Load(object sender, EventArgs e)
+        {
+            CurrentImageFileName = (String)Microsoft.Win32.Registry.GetValue(ParamRegPath, "ImageFileName", "");
+            textBoxImage.Text = CurrentImageFileName;
+        }
+
+        private void buttonApplyConfig_Click(object sender, EventArgs e)
+        {
+            string ImageFile = textBoxImage.Text;
+            string FullPath = Path.GetFullPath(ImageFile);
+            if (!Directory.Exists(Path.GetDirectoryName(FullPath)))
+            {
+                MessageBox.Show(this, "The specified directory\ndoes not exist!");
+                textBoxImage.SelectAll();
+                textBoxImage.Focus();
+                return;
+            }
+
+            if (!Path.GetFileNameWithoutExtension(FullPath).Contains('0'))
+            {
+                MessageBox.Show(this, "The file name must\ncontain a '0'!");
+                textBoxImage.SelectAll();
+                textBoxImage.Focus();
+                return;
+            }
+
+            Microsoft.Win32.Registry.SetValue(ParamRegPath, "ImageFileName", FullPath);
+            CurrentImageFileName = FullPath;
+            buttonApplyConfig.Enabled = false;
+        }
+
+        private void textBoxImage_TextChanged(object sender, EventArgs e)
+        {
+            buttonApplyConfig.Enabled = !textBoxImage.Text.Equals(CurrentImageFileName);
+        }
+
+        private void buttonFindImage_Click(object sender, EventArgs e)
+        {
+            openFileDialogImage.FileName = CurrentImageFileName;
+            if (openFileDialogImage.ShowDialog(this) == System.Windows.Forms.DialogResult.OK)
+            {
+                textBoxImage.Text = openFileDialogImage.FileName;
+            }
         }
     }
 }

@@ -45,12 +45,19 @@
             this.groupBox4 = new System.Windows.Forms.GroupBox();
             this.timerGhost = new System.Windows.Forms.Timer(this.components);
             this.timerUmount = new System.Windows.Forms.Timer(this.components);
+            this.groupBox5 = new System.Windows.Forms.GroupBox();
+            this.buttonApplyConfig = new System.Windows.Forms.Button();
+            this.label3 = new System.Windows.Forms.Label();
+            this.textBoxImage = new System.Windows.Forms.TextBox();
+            this.buttonFindImage = new System.Windows.Forms.Button();
+            this.openFileDialogImage = new System.Windows.Forms.OpenFileDialog();
             this.groupBox1.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.numericMountInterval)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numericMountDuration)).BeginInit();
             this.groupBox2.SuspendLayout();
             this.groupBox3.SuspendLayout();
             this.groupBox4.SuspendLayout();
+            this.groupBox5.SuspendLayout();
             this.SuspendLayout();
             // 
             // buttonMount
@@ -237,11 +244,68 @@
             // 
             this.timerUmount.Tick += new System.EventHandler(this.timerUmount_Tick);
             // 
+            // groupBox5
+            // 
+            this.groupBox5.Controls.Add(this.buttonFindImage);
+            this.groupBox5.Controls.Add(this.buttonApplyConfig);
+            this.groupBox5.Controls.Add(this.label3);
+            this.groupBox5.Controls.Add(this.textBoxImage);
+            this.groupBox5.Location = new System.Drawing.Point(12, 313);
+            this.groupBox5.Name = "groupBox5";
+            this.groupBox5.Size = new System.Drawing.Size(208, 122);
+            this.groupBox5.TabIndex = 12;
+            this.groupBox5.TabStop = false;
+            this.groupBox5.Text = "Configuration";
+            // 
+            // buttonApplyConfig
+            // 
+            this.buttonApplyConfig.Enabled = false;
+            this.buttonApplyConfig.Location = new System.Drawing.Point(9, 77);
+            this.buttonApplyConfig.Name = "buttonApplyConfig";
+            this.buttonApplyConfig.Size = new System.Drawing.Size(187, 28);
+            this.buttonApplyConfig.TabIndex = 2;
+            this.buttonApplyConfig.Text = "Apply changes";
+            this.buttonApplyConfig.UseVisualStyleBackColor = true;
+            this.buttonApplyConfig.Click += new System.EventHandler(this.buttonApplyConfig_Click);
+            // 
+            // label3
+            // 
+            this.label3.AutoSize = true;
+            this.label3.Location = new System.Drawing.Point(6, 25);
+            this.label3.Name = "label3";
+            this.label3.Size = new System.Drawing.Size(121, 13);
+            this.label3.TabIndex = 1;
+            this.label3.Text = "Image file for device #0:";
+            // 
+            // textBoxImage
+            // 
+            this.textBoxImage.Location = new System.Drawing.Point(9, 41);
+            this.textBoxImage.Name = "textBoxImage";
+            this.textBoxImage.Size = new System.Drawing.Size(156, 20);
+            this.textBoxImage.TabIndex = 0;
+            this.textBoxImage.TextChanged += new System.EventHandler(this.textBoxImage_TextChanged);
+            // 
+            // buttonFindImage
+            // 
+            this.buttonFindImage.Location = new System.Drawing.Point(171, 39);
+            this.buttonFindImage.Name = "buttonFindImage";
+            this.buttonFindImage.Size = new System.Drawing.Size(25, 23);
+            this.buttonFindImage.TabIndex = 3;
+            this.buttonFindImage.Text = "...";
+            this.buttonFindImage.UseVisualStyleBackColor = true;
+            this.buttonFindImage.Click += new System.EventHandler(this.buttonFindImage_Click);
+            // 
+            // openFileDialogImage
+            // 
+            this.openFileDialogImage.Filter = "All files|*.*";
+            this.openFileDialogImage.Title = "Open image file";
+            // 
             // MainForm
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(656, 447);
+            this.Controls.Add(this.groupBox5);
             this.Controls.Add(this.groupBox4);
             this.Controls.Add(this.groupBox3);
             this.Controls.Add(this.groupBox2);
@@ -250,6 +314,7 @@
             this.MaximizeBox = false;
             this.Name = "MainForm";
             this.Text = "Ghost";
+            this.Load += new System.EventHandler(this.MainForm_Load);
             this.groupBox1.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)(this.numericMountInterval)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numericMountDuration)).EndInit();
@@ -258,6 +323,8 @@
             this.groupBox3.ResumeLayout(false);
             this.groupBox3.PerformLayout();
             this.groupBox4.ResumeLayout(false);
+            this.groupBox5.ResumeLayout(false);
+            this.groupBox5.PerformLayout();
             this.ResumeLayout(false);
 
         }
@@ -280,6 +347,12 @@
         private System.Windows.Forms.Timer timerGhost;
         private System.Windows.Forms.Label labelAutomaticInProgress;
         private System.Windows.Forms.Timer timerUmount;
+        private System.Windows.Forms.GroupBox groupBox5;
+        private System.Windows.Forms.Button buttonApplyConfig;
+        private System.Windows.Forms.Label label3;
+        private System.Windows.Forms.TextBox textBoxImage;
+        private System.Windows.Forms.Button buttonFindImage;
+        private System.Windows.Forms.OpenFileDialog openFileDialogImage;
     }
 }
 
