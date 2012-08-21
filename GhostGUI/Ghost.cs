@@ -9,17 +9,21 @@ namespace GhostGUI
 {
     class Ghost
     {
-        private delegate void GhostIncidentCallback(int DeviceID, int IncidentID, IntPtr Context);
-        private enum State
+        protected delegate void GhostIncidentCallback(int DeviceID, int IncidentID, IntPtr Context);
+        protected enum State
         {
             BeforeOperation,
             Mounted,
             AfterOperation
         }
 
-        private List<Incident> Incidents = new List<Incident>();
-        private int DeviceID;
-        private State DeviceState = State.BeforeOperation;
+        protected List<Incident> Incidents = new List<Incident>();
+        protected int DeviceID;
+        protected State DeviceState = State.BeforeOperation;
+        protected DateTime Mount;
+
+        public delegate void GhostUpdateHandler();
+        public event GhostUpdateHandler OnUpdate;
 
         public void Start()
         {
@@ -36,6 +40,8 @@ namespace GhostGUI
             }
 
             DeviceState = State.Mounted;
+            Mount = DateTime.Now;
+            OnUpdate();
         }
 
         public void Stop()
@@ -62,6 +68,14 @@ namespace GhostGUI
             }
         }
 
+        public DateTime MountTime
+        {
+            get
+            {
+                return Mount;
+            }
+        }
+
         private void IncidentCreator(int DeviceID, int IncidentID, IntPtr Context)
         {
             int ProcessID = GhostGetProcessID(DeviceID, IncidentID);
@@ -82,6 +96,7 @@ namespace GhostGUI
             }
 
             Incidents.Add(NewIncident);
+            OnUpdate();
         }
 
         [DllImport("ghostlib.dll")]
