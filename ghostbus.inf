@@ -29,7 +29,7 @@ Signature = "$Windows NT$"
 Class = System
 ClassGuid = {4d36e97d-e325-11ce-bfc1-08002be10318}
 Provider = %Ghost%
-DriverVer = 06/07/2012,0.1
+DriverVer = 08/23/2012,0.2
 
 
 [SourceDisksNames]

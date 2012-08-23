@@ -151,7 +151,7 @@ BOOL IsDevicePresent(const char *HardwareID) {
 /*
  * Callback that marks Ghost devices for reinstall if they are not present.
  */
-/*BOOL UpdateFunctionDriverCallback(HDEVINFO DevInfoSet, PSP_DEVINFO_DATA DevInfo, BOOL IsPresent, void *Context) {
+BOOL UpdateFunctionDriverCallback(HDEVINFO DevInfoSet, PSP_DEVINFO_DATA DevInfo, BOOL IsPresent, void *Context) {
 	DWORD ConfigFlags;
 	
 	if (IsPresent) {
@@ -172,7 +172,7 @@ BOOL IsDevicePresent(const char *HardwareID) {
 	}
 	
 	return TRUE;
-}*/
+}
 
 
 
@@ -372,7 +372,7 @@ int __cdecl main(int argc, char *argv[]) {
 	RegCloseKey(DriveInfKey);
 	printf("New driver installed\n");
 	
-	/*// Update the driver
+	// Update the driver
 	if (UpdateDriverForPlugAndPlayDevices(NULL, TEXT("ghostbus\\ghostdrive"), DriveInfFile, 0, &TempBool) == TRUE) {
 		printf("Function driver of present devices updated\n");
 	}
@@ -399,11 +399,11 @@ int __cdecl main(int argc, char *argv[]) {
 		}
 	}
 
-	NeedRestart |= TempBool;*/
+	NeedRestart |= TempBool;
 	
-	/*// Mark those devices for reinstall that are not currently present
+	// Mark those devices for reinstall that are not currently present
 	printf("Marking devices for reinstall...\n");
-	EnumerateDevices("ghostbus\\ghostdrive", UpdateFunctionDriverCallback, NULL);*/
+	EnumerateDevices("ghostbus\\ghostdrive", UpdateFunctionDriverCallback, NULL);
 	
 	printf("Done\n");
 	

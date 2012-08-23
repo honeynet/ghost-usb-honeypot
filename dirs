@@ -1,1 +1,1 @@
-DIRS=GhostBus GhostDrive GhostLib Installer
+DIRS=GhostBus GhostDrive GhostLib Installer Test

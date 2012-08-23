@@ -27,7 +27,15 @@ namespace GhostGUI
             Ghosts.Add(MainGhost);
 
             MainGhost.OnUpdate += ThreadSafeUpdate;
-            MainGhost.Start();
+            try
+            {
+                MainGhost.Start();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message);
+                return;
+            }
 
             buttonMount.Enabled = false;
             buttonUmount.Enabled = true;
@@ -37,7 +45,16 @@ namespace GhostGUI
 
         private void buttonUmount_Click(object sender, EventArgs e)
         {
-            MainGhost.Stop();
+            try
+            {
+                MainGhost.Stop();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message);
+                return;
+            }
+
             MainGhost = null;
 
             buttonUmount.Enabled = false;
@@ -137,7 +154,15 @@ namespace GhostGUI
             Ghosts.Add(MainGhost);
             MainGhost.OnUpdate += ThreadSafeUpdate;
 
-            MainGhost.Start();
+            try
+            {
+                MainGhost.Start();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message);
+                return;
+            }
 
             timerUmount.Interval = (int)Properties.Settings.Default.MountDuration * 1000;
             timerUmount.Start();
@@ -146,7 +171,16 @@ namespace GhostGUI
         private void timerUmount_Tick(object sender, EventArgs e)
         {
             timerUmount.Stop();
-            MainGhost.Stop();
+            try
+            {
+                MainGhost.Stop();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message);
+                return;
+            }
+
             MainGhost = null;
 
             labelAutomaticInProgress.Hide();
@@ -246,7 +280,14 @@ namespace GhostGUI
         {
             if (MainGhost != null)
             {
-                MainGhost.Stop();
+                try
+                {
+                    MainGhost.Stop();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show(this, ex.Message);
+                }
             }
         }
     }
