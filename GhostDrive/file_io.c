@@ -85,7 +85,6 @@ NTSTATUS GhostFileIoMountImage(WDFDEVICE Device, PUNICODE_STRING ImageName, PLAR
 		KdPrint(("File created\n"));
 
 		// Make the file sparse
-		// TODO: No effect?
 		status = ZwFsControlFile(Context->ImageFile,
 						NULL,
 						NULL,

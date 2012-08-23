@@ -7,8 +7,13 @@ using System.Windows.Forms;
 
 namespace GhostGUI
 {
+    [Serializable]
     class Ghost
     {
+        protected const string ParamRegPath = "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\ghostdrive\\Parameters";
+        protected static string GhostImageFileName = (String)Microsoft.Win32.Registry.GetValue(ParamRegPath, "ImageFileName", "");
+
+        protected const int GhostDeviceID = 9;
         protected delegate void GhostIncidentCallback(int DeviceID, int IncidentID, IntPtr Context);
         protected enum State
         {
@@ -25,6 +30,19 @@ namespace GhostGUI
         public delegate void GhostUpdateHandler();
         public event GhostUpdateHandler OnUpdate;
 
+        public static string ImageFileName
+        {
+            get
+            {
+                return GhostImageFileName;
+            }
+            set
+            {
+                GhostImageFileName = value;
+                Microsoft.Win32.Registry.SetValue(ParamRegPath, "ImageFileName", value);
+            }
+        }
+
         public void Start()
         {
             if (DeviceState != State.BeforeOperation)
@@ -32,7 +50,7 @@ namespace GhostGUI
                 throw new Exception("Device state invalid for this operation");
             }
 
-            DeviceID = GhostMountDevice(IncidentCreator, IntPtr.Zero);
+            DeviceID = GhostMountDeviceWithID(GhostDeviceID, IncidentCreator, IntPtr.Zero);
             if (DeviceID == -1)
             {
                 int Error = GhostGetLastError();
@@ -100,7 +118,7 @@ namespace GhostGUI
         }
 
         [DllImport("ghostlib.dll")]
-        private static extern int GhostMountDevice(GhostIncidentCallback Callback, IntPtr Context);
+        private static extern int GhostMountDeviceWithID(int DeviceID, GhostIncidentCallback Callback, IntPtr Context);
         [DllImport("ghostlib.dll")]
         private static extern int GhostUmountDevice(int DeviceID);
         [DllImport("ghostlib.dll")]
