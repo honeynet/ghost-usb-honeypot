@@ -44,7 +44,8 @@ static const char *ErrorDescriptions[] = {
 	"Could not open the bus device", // 1
 	"Could not plug in the virtual USB device", // 2
 	"Could not unplug the virtual USB device", // 3
-	"Could not start the info thread" // 4
+	"Could not start the info thread", // 4
+	"The supplied device ID is invalid" // 5
 };
 
 
@@ -183,12 +184,22 @@ DWORD WINAPI InfoThread(LPVOID Parameter) {
 
 
 int DLLCALL GhostMountDevice(GhostIncidentCallback Callback, void *Context) {
+	return GhostMountDeviceWithID(-1, Callback, Context);
+}
+
+
+int DLLCALL GhostMountDeviceWithID(int DeviceID, GhostIncidentCallback Callback, void *Context) {
 	HANDLE hDevice;
 	DWORD BytesReturned;
 	BOOL result;
-	LONG lID = -1;
-	LONG DeviceID;
+	LONG OutDeviceID;
 	PGHOST_DEVICE GhostDevice;
+	
+	// Check the device ID
+	if (DeviceID < -1 || DeviceID > 9) {
+		LastError = 5;
+		return -1;
+	}
 	
 	// Open the bus device
 	hDevice = CreateFile("\\\\.\\GhostBus",
@@ -207,9 +218,9 @@ int DLLCALL GhostMountDevice(GhostIncidentCallback Callback, void *Context) {
 	// "Plug in" the virtual USB device
 	result = DeviceIoControl(hDevice,
 		IOCTL_GHOST_BUS_ENABLE_DRIVE,
-		&lID,
-		sizeof(LONG),
 		&DeviceID,
+		sizeof(LONG),
+		&OutDeviceID,
 		sizeof(LONG),
 		&BytesReturned,
 		NULL);
@@ -221,7 +232,7 @@ int DLLCALL GhostMountDevice(GhostIncidentCallback Callback, void *Context) {
 
 	CloseHandle(hDevice);
 	
-	GhostDevice = DeviceListCreateDevice(DeviceID);
+	GhostDevice = DeviceListCreateDevice(OutDeviceID);
 	GhostDevice->Callback = Callback;
 	GhostDevice->Context = Context;
 	GhostDevice->Incidents = NULL;
@@ -235,7 +246,7 @@ int DLLCALL GhostMountDevice(GhostIncidentCallback Callback, void *Context) {
 		}
 	}
 
-	return DeviceID;
+	return OutDeviceID;
 }
 
 int DLLCALL GhostUmountDevice(int DeviceID) {

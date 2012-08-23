@@ -1,6 +1,7 @@
 LIBRARY GhostLib
 EXPORTS
 	GhostMountDevice
+	GhostMountDeviceWithID
 	GhostUmountDevice
 	GhostGetLastError
 	GhostGetErrorDescription

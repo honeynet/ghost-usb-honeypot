@@ -69,6 +69,7 @@ typedef void (DLLCALL *GhostIncidentCallback) (int, int, void*);
  * error handling functions.
  */
 int DLLCALL GhostMountDevice(GhostIncidentCallback Callback, void *Context);
+int DLLCALL GhostMountDeviceWithID(int DeviceID, GhostIncidentCallback Callback, void *Context);
 
 /*
  * Unmount the emulated device specified by its device ID

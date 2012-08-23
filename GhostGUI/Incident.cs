@@ -5,6 +5,7 @@ using System.Text;
 
 namespace GhostGUI
 {
+    [Serializable]
     class Incident
     {
         private List<String> LoadedModules = new List<String>();

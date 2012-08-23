@@ -29,6 +29,7 @@
         private void InitializeComponent()
         {
             this.components = new System.ComponentModel.Container();
+            System.ComponentModel.ComponentResourceManager resources = new System.ComponentModel.ComponentResourceManager(typeof(MainForm));
             this.buttonMount = new System.Windows.Forms.Button();
             this.buttonUmount = new System.Windows.Forms.Button();
             this.treeViewResults = new System.Windows.Forms.TreeView();
@@ -46,11 +47,15 @@
             this.timerGhost = new System.Windows.Forms.Timer(this.components);
             this.timerUmount = new System.Windows.Forms.Timer(this.components);
             this.groupBox5 = new System.Windows.Forms.GroupBox();
+            this.buttonFindImage = new System.Windows.Forms.Button();
             this.buttonApplyConfig = new System.Windows.Forms.Button();
             this.label3 = new System.Windows.Forms.Label();
             this.textBoxImage = new System.Windows.Forms.TextBox();
-            this.buttonFindImage = new System.Windows.Forms.Button();
             this.openFileDialogImage = new System.Windows.Forms.OpenFileDialog();
+            this.notifyIcon = new System.Windows.Forms.NotifyIcon(this.components);
+            this.contextMenuStripIcon = new System.Windows.Forms.ContextMenuStrip(this.components);
+            this.toolStripMenuItemRestore = new System.Windows.Forms.ToolStripMenuItem();
+            this.toolStripMenuItemQuit = new System.Windows.Forms.ToolStripMenuItem();
             this.groupBox1.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.numericMountInterval)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numericMountDuration)).BeginInit();
@@ -58,6 +63,7 @@
             this.groupBox3.SuspendLayout();
             this.groupBox4.SuspendLayout();
             this.groupBox5.SuspendLayout();
+            this.contextMenuStripIcon.SuspendLayout();
             this.SuspendLayout();
             // 
             // buttonMount
@@ -148,6 +154,7 @@
             0,
             0,
             0});
+            this.numericMountDuration.ValueChanged += new System.EventHandler(this.numericMountDuration_ValueChanged);
             // 
             // label1
             // 
@@ -257,6 +264,16 @@
             this.groupBox5.TabStop = false;
             this.groupBox5.Text = "Configuration";
             // 
+            // buttonFindImage
+            // 
+            this.buttonFindImage.Location = new System.Drawing.Point(171, 39);
+            this.buttonFindImage.Name = "buttonFindImage";
+            this.buttonFindImage.Size = new System.Drawing.Size(25, 23);
+            this.buttonFindImage.TabIndex = 3;
+            this.buttonFindImage.Text = "...";
+            this.buttonFindImage.UseVisualStyleBackColor = true;
+            this.buttonFindImage.Click += new System.EventHandler(this.buttonFindImage_Click);
+            // 
             // buttonApplyConfig
             // 
             this.buttonApplyConfig.Enabled = false;
@@ -285,20 +302,41 @@
             this.textBoxImage.TabIndex = 0;
             this.textBoxImage.TextChanged += new System.EventHandler(this.textBoxImage_TextChanged);
             // 
-            // buttonFindImage
-            // 
-            this.buttonFindImage.Location = new System.Drawing.Point(171, 39);
-            this.buttonFindImage.Name = "buttonFindImage";
-            this.buttonFindImage.Size = new System.Drawing.Size(25, 23);
-            this.buttonFindImage.TabIndex = 3;
-            this.buttonFindImage.Text = "...";
-            this.buttonFindImage.UseVisualStyleBackColor = true;
-            this.buttonFindImage.Click += new System.EventHandler(this.buttonFindImage_Click);
-            // 
             // openFileDialogImage
             // 
             this.openFileDialogImage.Filter = "All files|*.*";
             this.openFileDialogImage.Title = "Open image file";
+            // 
+            // notifyIcon
+            // 
+            this.notifyIcon.ContextMenuStrip = this.contextMenuStripIcon;
+            this.notifyIcon.Icon = ((System.Drawing.Icon)(resources.GetObject("notifyIcon.Icon")));
+            this.notifyIcon.Text = "Ghost USB honeypot";
+            this.notifyIcon.Visible = true;
+            this.notifyIcon.MouseDoubleClick += new System.Windows.Forms.MouseEventHandler(this.notifyIcon_MouseDoubleClick);
+            // 
+            // contextMenuStripIcon
+            // 
+            this.contextMenuStripIcon.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.toolStripMenuItemRestore,
+            this.toolStripMenuItemQuit});
+            this.contextMenuStripIcon.Name = "contextMenuStripIcon";
+            this.contextMenuStripIcon.ShowImageMargin = false;
+            this.contextMenuStripIcon.Size = new System.Drawing.Size(99, 48);
+            // 
+            // toolStripMenuItemRestore
+            // 
+            this.toolStripMenuItemRestore.Name = "toolStripMenuItemRestore";
+            this.toolStripMenuItemRestore.Size = new System.Drawing.Size(127, 22);
+            this.toolStripMenuItemRestore.Text = "Restore";
+            this.toolStripMenuItemRestore.Click += new System.EventHandler(this.toolStripMenuItemRestore_Click);
+            // 
+            // toolStripMenuItemQuit
+            // 
+            this.toolStripMenuItemQuit.Name = "toolStripMenuItemQuit";
+            this.toolStripMenuItemQuit.Size = new System.Drawing.Size(127, 22);
+            this.toolStripMenuItemQuit.Text = "Quit";
+            this.toolStripMenuItemQuit.Click += new System.EventHandler(this.toolStripMenuItemQuit_Click);
             // 
             // MainForm
             // 
@@ -311,10 +349,13 @@
             this.Controls.Add(this.groupBox2);
             this.Controls.Add(this.groupBox1);
             this.FormBorderStyle = System.Windows.Forms.FormBorderStyle.FixedSingle;
+            this.Icon = ((System.Drawing.Icon)(resources.GetObject("$this.Icon")));
             this.MaximizeBox = false;
             this.Name = "MainForm";
             this.Text = "Ghost";
+            this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.MainForm_FormClosing);
             this.Load += new System.EventHandler(this.MainForm_Load);
+            this.Resize += new System.EventHandler(this.MainForm_Resize);
             this.groupBox1.ResumeLayout(false);
             ((System.ComponentModel.ISupportInitialize)(this.numericMountInterval)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.numericMountDuration)).EndInit();
@@ -325,6 +366,7 @@
             this.groupBox4.ResumeLayout(false);
             this.groupBox5.ResumeLayout(false);
             this.groupBox5.PerformLayout();
+            this.contextMenuStripIcon.ResumeLayout(false);
             this.ResumeLayout(false);
 
         }
@@ -353,6 +395,10 @@
         private System.Windows.Forms.TextBox textBoxImage;
         private System.Windows.Forms.Button buttonFindImage;
         private System.Windows.Forms.OpenFileDialog openFileDialogImage;
+        private System.Windows.Forms.NotifyIcon notifyIcon;
+        private System.Windows.Forms.ContextMenuStrip contextMenuStripIcon;
+        private System.Windows.Forms.ToolStripMenuItem toolStripMenuItemRestore;
+        private System.Windows.Forms.ToolStripMenuItem toolStripMenuItemQuit;
     }
 }
 

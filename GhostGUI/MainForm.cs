@@ -12,8 +12,6 @@ namespace GhostGUI
 {
     public partial class MainForm : Form
     {
-        private const string ParamRegPath = "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\ghostdrive\\Parameters";
-        private string CurrentImageFileName;
         private List<Ghost> Ghosts = new List<Ghost>();
         private Ghost MainGhost;
         private delegate void ViewUpdater();
@@ -73,10 +71,16 @@ namespace GhostGUI
                     continue;
                 }
 
-                TreeNode NewNode = treeViewResults.Nodes.Add(g.MountTime.ToString());
+                StringBuilder sb = new StringBuilder();
+                sb.Append(g.MountTime.ToString());
+                sb.Append(" - ");
+                sb.Append(g.IncidentList.Count > 0 ? "Detection!" : "No detection");
+                TreeNode NewNode = treeViewResults.Nodes.Add(sb.ToString());
                 foreach (Incident i in g.IncidentList)
                 {
-                    TreeNode SubNode = NewNode.Nodes.Add("PID: " + i.PID.ToString() + ", TID: " + i.TID.ToString());
+                    TreeNode SubNode = NewNode.Nodes.Add(i.Modules.Count > 0 ? i.Modules[0] : "System");
+                    SubNode.Nodes.Add("PID: " + i.PID.ToString());
+                    SubNode.Nodes.Add("TID: " + i.TID.ToString());
                     if (i.Modules.Count != 0)
                     {
                         TreeNode Modules = SubNode.Nodes.Add("Loaded Modules");
@@ -93,6 +97,9 @@ namespace GhostGUI
 
         private void radioButtonManual_CheckedChanged(object sender, EventArgs e)
         {
+            Properties.Settings.Default.ManualControl = radioButtonManual.Checked;
+            Properties.Settings.Default.Save();
+
             if (radioButtonManual.Checked)
             {
                 buttonMount.Enabled = true;
@@ -114,6 +121,8 @@ namespace GhostGUI
         private void numericMountInterval_ValueChanged(object sender, EventArgs e)
         {
             timerGhost.Interval = (int) numericMountInterval.Value * 60000;
+            Properties.Settings.Default.MountInterval = numericMountInterval.Value;
+            Properties.Settings.Default.Save();
         }
 
         private void timerGhost_Tick(object sender, EventArgs e)
@@ -130,7 +139,7 @@ namespace GhostGUI
 
             MainGhost.Start();
 
-            timerUmount.Interval = (int)numericMountDuration.Value * 1000;
+            timerUmount.Interval = (int)Properties.Settings.Default.MountDuration * 1000;
             timerUmount.Start();
         }
 
@@ -138,6 +147,7 @@ namespace GhostGUI
         {
             timerUmount.Stop();
             MainGhost.Stop();
+            MainGhost = null;
 
             labelAutomaticInProgress.Hide();
             radioButtonAutomatic.Enabled = true;
@@ -148,8 +158,19 @@ namespace GhostGUI
 
         private void MainForm_Load(object sender, EventArgs e)
         {
-            CurrentImageFileName = (String)Microsoft.Win32.Registry.GetValue(ParamRegPath, "ImageFileName", "");
-            textBoxImage.Text = CurrentImageFileName;
+            textBoxImage.Text = Ghost.ImageFileName;
+            numericMountInterval.Value = Properties.Settings.Default.MountInterval;
+            numericMountDuration.Value = Properties.Settings.Default.MountDuration;
+
+            if (!Properties.Settings.Default.ManualControl)
+            {
+                buttonMount.Enabled = false;
+                buttonUmount.Enabled = false;
+                numericMountInterval.Enabled = true;
+                numericMountDuration.Enabled = true;
+                timerGhost.Enabled = true;
+                radioButtonAutomatic.Checked = true;
+            }
         }
 
         private void buttonApplyConfig_Click(object sender, EventArgs e)
@@ -172,22 +193,60 @@ namespace GhostGUI
                 return;
             }
 
-            Microsoft.Win32.Registry.SetValue(ParamRegPath, "ImageFileName", FullPath);
-            CurrentImageFileName = FullPath;
+            Ghost.ImageFileName = FullPath;
             buttonApplyConfig.Enabled = false;
         }
 
         private void textBoxImage_TextChanged(object sender, EventArgs e)
         {
-            buttonApplyConfig.Enabled = !textBoxImage.Text.Equals(CurrentImageFileName);
+            buttonApplyConfig.Enabled = !textBoxImage.Text.Equals(Ghost.ImageFileName);
         }
 
         private void buttonFindImage_Click(object sender, EventArgs e)
         {
-            openFileDialogImage.FileName = CurrentImageFileName;
+            openFileDialogImage.FileName = Ghost.ImageFileName;
             if (openFileDialogImage.ShowDialog(this) == System.Windows.Forms.DialogResult.OK)
             {
                 textBoxImage.Text = openFileDialogImage.FileName;
+            }
+        }
+
+        private void notifyIcon_MouseDoubleClick(object sender, MouseEventArgs e)
+        {
+            this.Show();
+            this.WindowState = FormWindowState.Normal;
+        }
+
+        private void MainForm_Resize(object sender, EventArgs e)
+        {
+            if (this.WindowState == FormWindowState.Minimized)
+            {
+                this.Hide();
+            }
+        }
+
+        private void numericMountDuration_ValueChanged(object sender, EventArgs e)
+        {
+            Properties.Settings.Default.MountDuration = numericMountDuration.Value;
+            Properties.Settings.Default.Save();
+        }
+
+        private void toolStripMenuItemQuit_Click(object sender, EventArgs e)
+        {
+            this.Close();
+        }
+
+        private void toolStripMenuItemRestore_Click(object sender, EventArgs e)
+        {
+            this.Show();
+            this.WindowState = FormWindowState.Normal;
+        }
+
+        private void MainForm_FormClosing(object sender, FormClosingEventArgs e)
+        {
+            if (MainGhost != null)
+            {
+                MainGhost.Stop();
             }
         }
     }
