@@ -45,7 +45,10 @@ static const char *ErrorDescriptions[] = {
 	"Could not plug in the virtual USB device", // 2
 	"Could not unplug the virtual USB device", // 3
 	"Could not start the info thread", // 4
-	"The supplied device ID is invalid" // 5
+	"The supplied device ID is invalid", // 5
+	"Could not initialize an event object", // 6
+	"Invalid device ID", // 7
+	"Could not set an event object" // 8
 };
 
 
@@ -64,7 +67,7 @@ BOOL WINAPI DllMain(HINSTANCE hinstDll, DWORD fdwReason, LPVOID lpvReserved) {
 }
 
 
-void _PrintWriterInfo(PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo) {
+/*void _PrintWriterInfo(PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo) {
 	int i;
 	
 	printf("\n");
@@ -75,7 +78,7 @@ void _PrintWriterInfo(PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo) {
 		printf("%S\n", (PWCHAR) ((PCHAR) WriterInfo + WriterInfo->ModuleNameOffsets[i]));
 	}
 	printf("\n");
-}
+}*/
 
 
 PGHOST_DRIVE_WRITER_INFO_RESPONSE _GetWriterInfo(HANDLE Device, USHORT Index, BOOLEAN Block) {
@@ -99,7 +102,7 @@ PGHOST_DRIVE_WRITER_INFO_RESPONSE _GetWriterInfo(HANDLE Device, USHORT Index, BO
 
 	if (result == FALSE) {
 		// Probably no more data available
-		printf("No more data\n");
+		//printf("No more data\n");
 		return NULL;
 	}
 	
@@ -107,6 +110,7 @@ PGHOST_DRIVE_WRITER_INFO_RESPONSE _GetWriterInfo(HANDLE Device, USHORT Index, BO
 	//printf("Need %d bytes\n", RequiredSize);
 	
 	WriterInfo = malloc(RequiredSize);
+	ZeroMemory(WriterInfo, RequiredSize);
 	//printf("Retrieving actual data...\n");
 	
 	result = DeviceIoControl(Device,
@@ -119,7 +123,7 @@ PGHOST_DRIVE_WRITER_INFO_RESPONSE _GetWriterInfo(HANDLE Device, USHORT Index, BO
 		NULL);
 
 	if (result == FALSE) {
-		printf("Error: IOCTL code failed: %d\n", GetLastError());
+		//printf("Error: IOCTL code failed: %d\n", GetLastError());
 		free(WriterInfo);
 		return NULL;
 	}
@@ -140,8 +144,6 @@ DWORD WINAPI InfoThread(LPVOID Parameter) {
 	if (Parameter == NULL) {
 		return -1;
 	}
-	
-	printf("Info thread\n");
 	
 	GhostDevice = (PGHOST_DEVICE) Parameter;
 	dosdevice[14] = GhostDevice->DeviceID + 0x30;
@@ -164,6 +166,11 @@ DWORD WINAPI InfoThread(LPVOID Parameter) {
 		WriterInfo = _GetWriterInfo(hDevice, i, TRUE);
 		if (WriterInfo == NULL) {
 			break;
+		}
+		
+		// Are we supposed to terminate?
+		if (WaitForSingleObject(GhostDevice->StopEvent, 0) == WAIT_OBJECT_0) {
+			return 0;
 		}
 		
 		Incident = malloc(sizeof(GHOST_INCIDENT));
@@ -240,10 +247,20 @@ int DLLCALL GhostMountDeviceWithID(int DeviceID, GhostIncidentCallback Callback,
 	
 	// Start a thread that waits for incidents
 	if (Callback != NULL) {
-		if (CreateThread(NULL, 0, InfoThread, GhostDevice, 0, NULL) == NULL) {
+		GhostDevice->StopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+		if (GhostDevice->StopEvent == NULL) {
+			LastError = 6;
+			return -1;
+		}
+		GhostDevice->InfoThread = CreateThread(NULL, 0, InfoThread, GhostDevice, 0, NULL);
+		if (GhostDevice->InfoThread == NULL) {
 			LastError = 4;
 			return -1;
 		}
+	}
+	else {
+		GhostDevice->StopEvent = NULL;
+		GhostDevice->InfoThread = NULL;
 	}
 
 	return OutDeviceID;
@@ -257,6 +274,14 @@ int DLLCALL GhostUmountDevice(int DeviceID) {
 	BOOLEAN Written = FALSE;
 	PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
 	USHORT i;
+	PGHOST_DEVICE Device;
+	
+	// Find context information about the device
+	Device = DeviceListGet(DeviceID);
+	if (Device == NULL) {
+		LastError = 7;
+		return -1;
+	}
 
 	// Open the bus device
 	hDevice = CreateFile("\\\\.\\GhostBus",
@@ -289,6 +314,17 @@ int DLLCALL GhostUmountDevice(int DeviceID) {
 
 	CloseHandle(hDevice);
 	
+	// Signal the info thread to terminate
+	if (Device->InfoThread != NULL) {
+		if (!SetEvent(Device->StopEvent)) {
+			LastError = 8;
+			return -1;
+		}
+		
+		// Wait until the thread has terminated
+		WaitForSingleObject(Device->InfoThread, INFINITE);
+		CloseHandle(Device->StopEvent);
+	}
 	DeviceListRemove(DeviceID);
 	return 0;
 }
@@ -310,6 +346,10 @@ PGHOST_INCIDENT _GetIncident(int DeviceID, int IncidentID) {
 	PGHOST_INCIDENT Incident;
 	
 	Device = DeviceListGet(DeviceID);
+	if (Device == NULL) {
+		return NULL;
+	}
+	
 	Incident = Device->Incidents;
 	while (Incident != NULL) {
 		if (Incident->IncidentID == IncidentID) {

@@ -14,6 +14,7 @@ namespace GhostGUI
         protected static string GhostImageFileName = (String)Microsoft.Win32.Registry.GetValue(ParamRegPath, "ImageFileName", "");
 
         protected const int GhostDeviceID = 9;
+        [UnmanagedFunctionPointer(CallingConvention.StdCall)]
         protected delegate void GhostIncidentCallback(int DeviceID, int IncidentID, IntPtr Context);
         protected enum State
         {
@@ -26,6 +27,7 @@ namespace GhostGUI
         protected int DeviceID;
         protected State DeviceState = State.BeforeOperation;
         protected DateTime Mount;
+        private GhostIncidentCallback Callback;
 
         public delegate void GhostUpdateHandler();
         public event GhostUpdateHandler OnUpdate;
@@ -50,7 +52,8 @@ namespace GhostGUI
                 throw new Exception("Device state invalid for this operation");
             }
 
-            DeviceID = GhostMountDeviceWithID(GhostDeviceID, IncidentCreator, IntPtr.Zero);
+            Callback = new GhostIncidentCallback(IncidentCreator);
+            DeviceID = GhostMountDeviceWithID(GhostDeviceID, Callback, IntPtr.Zero);
             if (DeviceID == -1)
             {
                 int Error = GhostGetLastError();

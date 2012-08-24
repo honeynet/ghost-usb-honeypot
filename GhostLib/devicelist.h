@@ -46,6 +46,8 @@ typedef struct _GHOST_DEVICE {
 	int DeviceID;
 	GhostIncidentCallback Callback;
 	void *Context;
+	HANDLE StopEvent;
+	HANDLE InfoThread;
 	PGHOST_INCIDENT Incidents;
 	struct _GHOST_DEVICE *Next;
 } GHOST_DEVICE, *PGHOST_DEVICE;
