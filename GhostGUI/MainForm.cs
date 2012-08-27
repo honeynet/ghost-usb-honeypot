@@ -7,18 +7,21 @@ using System.Linq;
 using System.Text;
 using System.Windows.Forms;
 using System.IO;
+using System.Xml.Serialization;
 
 namespace GhostGUI
 {
     public partial class MainForm : Form
     {
-        private List<Ghost> Ghosts = new List<Ghost>();
+        string LogFileName;
+        private List<Ghost> Ghosts;
         private Ghost MainGhost;
         private delegate void ViewUpdater();
 
         public MainForm()
         {
             InitializeComponent();
+            LogFileName = Path.GetDirectoryName(Application.ExecutablePath) + Path.DirectorySeparatorChar + "log.xml";
         }
 
         private void buttonMount_Click(object sender, EventArgs e)
@@ -34,6 +37,7 @@ namespace GhostGUI
             catch (Exception ex)
             {
                 MessageBox.Show(this, ex.Message);
+                MainGhost = null;
                 return;
             }
 
@@ -95,7 +99,7 @@ namespace GhostGUI
                 TreeNode NewNode = treeViewResults.Nodes.Add(sb.ToString());
                 foreach (Incident i in g.IncidentList)
                 {
-                    TreeNode SubNode = NewNode.Nodes.Add(i.Modules.Count > 0 ? i.Modules[0] : "System");
+                    TreeNode SubNode = NewNode.Nodes.Add(i.Modules.Count > 0 ? Path.GetFileName(i.Modules[0]) : "System");
                     SubNode.Nodes.Add("PID: " + i.PID.ToString());
                     SubNode.Nodes.Add("TID: " + i.TID.ToString());
                     if (i.Modules.Count != 0)
@@ -161,6 +165,7 @@ namespace GhostGUI
             catch (Exception ex)
             {
                 MessageBox.Show(this, ex.Message);
+                MainGhost = null;
                 return;
             }
 
@@ -205,6 +210,27 @@ namespace GhostGUI
                 timerGhost.Enabled = true;
                 radioButtonAutomatic.Checked = true;
             }
+
+            TextReader stream = null;
+            try
+            {
+                stream = new StreamReader(LogFileName);
+                XmlSerializer serializer = new XmlSerializer(typeof(List<Ghost>));
+                Ghosts = (List<Ghost>)serializer.Deserialize(stream);
+            }
+            catch
+            {
+                Ghosts = new List<Ghost>();
+            }
+            finally
+            {
+                if (stream != null)
+                {
+                    stream.Close();
+                }
+            }
+
+            UpdateTreeView();
         }
 
         private void buttonApplyConfig_Click(object sender, EventArgs e)
@@ -289,6 +315,31 @@ namespace GhostGUI
                     MessageBox.Show(this, ex.Message);
                 }
             }
+
+            TextWriter stream = null;
+            try
+            {
+                stream = new StreamWriter(LogFileName);
+                XmlSerializer serializer = new XmlSerializer(typeof(List<Ghost>));
+                serializer.Serialize(stream, Ghosts);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Could not store the log on disk: " + ex.Message);
+            }
+            finally
+            {
+                if (stream != null)
+                {
+                    stream.Close();
+                }
+            }
+        }
+
+        private void buttonClearLog_Click(object sender, EventArgs e)
+        {
+            Ghosts.Clear();
+            UpdateTreeView();
         }
     }
 }

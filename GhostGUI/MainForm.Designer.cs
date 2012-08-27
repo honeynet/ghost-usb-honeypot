@@ -56,6 +56,7 @@
             this.contextMenuStripIcon = new System.Windows.Forms.ContextMenuStrip(this.components);
             this.toolStripMenuItemRestore = new System.Windows.Forms.ToolStripMenuItem();
             this.toolStripMenuItemQuit = new System.Windows.Forms.ToolStripMenuItem();
+            this.buttonClearLog = new System.Windows.Forms.Button();
             this.groupBox1.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.numericMountInterval)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numericMountDuration)).BeginInit();
@@ -91,7 +92,7 @@
             // 
             this.treeViewResults.Location = new System.Drawing.Point(6, 19);
             this.treeViewResults.Name = "treeViewResults";
-            this.treeViewResults.Size = new System.Drawing.Size(406, 398);
+            this.treeViewResults.Size = new System.Drawing.Size(406, 364);
             this.treeViewResults.TabIndex = 3;
             this.treeViewResults.Tag = "";
             // 
@@ -234,6 +235,7 @@
             // 
             // groupBox4
             // 
+            this.groupBox4.Controls.Add(this.buttonClearLog);
             this.groupBox4.Controls.Add(this.treeViewResults);
             this.groupBox4.Location = new System.Drawing.Point(226, 12);
             this.groupBox4.Name = "groupBox4";
@@ -338,6 +340,16 @@
             this.toolStripMenuItemQuit.Text = "Quit";
             this.toolStripMenuItemQuit.Click += new System.EventHandler(this.toolStripMenuItemQuit_Click);
             // 
+            // buttonClearLog
+            // 
+            this.buttonClearLog.Location = new System.Drawing.Point(225, 389);
+            this.buttonClearLog.Name = "buttonClearLog";
+            this.buttonClearLog.Size = new System.Drawing.Size(187, 28);
+            this.buttonClearLog.TabIndex = 4;
+            this.buttonClearLog.Text = "Clear log";
+            this.buttonClearLog.UseVisualStyleBackColor = true;
+            this.buttonClearLog.Click += new System.EventHandler(this.buttonClearLog_Click);
+            // 
             // MainForm
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
@@ -399,6 +411,7 @@
         private System.Windows.Forms.ContextMenuStrip contextMenuStripIcon;
         private System.Windows.Forms.ToolStripMenuItem toolStripMenuItemRestore;
         private System.Windows.Forms.ToolStripMenuItem toolStripMenuItemQuit;
+        private System.Windows.Forms.Button buttonClearLog;
     }
 }
 

@@ -8,7 +8,7 @@ using System.Windows.Forms;
 namespace GhostGUI
 {
     [Serializable]
-    class Ghost
+    public class Ghost
     {
         protected const string ParamRegPath = "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\ghostdrive\\Parameters";
         protected static string GhostImageFileName = (String)Microsoft.Win32.Registry.GetValue(ParamRegPath, "ImageFileName", "");
@@ -81,11 +81,15 @@ namespace GhostGUI
             DeviceState = State.AfterOperation;
         }
 
-        public IList<Incident> IncidentList
+        public List<Incident> IncidentList
         {
             get
             {
-                return Incidents.AsReadOnly();
+                return Incidents;
+            }
+            set
+            {
+                Incidents = value;
             }
         }
 
@@ -94,6 +98,10 @@ namespace GhostGUI
             get
             {
                 return Mount;
+            }
+            set
+            {
+                Mount = value;
             }
         }
 

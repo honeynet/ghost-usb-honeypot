@@ -6,11 +6,15 @@ using System.Text;
 namespace GhostGUI
 {
     [Serializable]
-    class Incident
+    public class Incident
     {
         private List<String> LoadedModules = new List<String>();
         private int ProcessID;
         private int ThreadID;
+
+        public Incident()
+        {
+        }
 
         public Incident(int ProcessID, int ThreadID)
         {
@@ -23,11 +27,15 @@ namespace GhostGUI
             LoadedModules.Add(ModuleName);
         }
 
-        public IList<String> Modules
+        public List<String> Modules
         {
             get
             {
-                return LoadedModules.AsReadOnly();
+                return LoadedModules;
+            }
+            set
+            {
+                LoadedModules = value;
             }
         }
 
@@ -37,6 +45,10 @@ namespace GhostGUI
             {
                 return ProcessID;
             }
+            set
+            {
+                ProcessID = value;
+            }
         }
 
         public int TID
@@ -44,6 +56,10 @@ namespace GhostGUI
             get
             {
                 return ThreadID;
+            }
+            set
+            {
+                ThreadID = value;
             }
         }
 
