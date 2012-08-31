@@ -44,6 +44,7 @@
             this.radioButtonManual = new System.Windows.Forms.RadioButton();
             this.radioButtonAutomatic = new System.Windows.Forms.RadioButton();
             this.groupBox4 = new System.Windows.Forms.GroupBox();
+            this.buttonClearLog = new System.Windows.Forms.Button();
             this.timerGhost = new System.Windows.Forms.Timer(this.components);
             this.timerUmount = new System.Windows.Forms.Timer(this.components);
             this.groupBox5 = new System.Windows.Forms.GroupBox();
@@ -56,7 +57,6 @@
             this.contextMenuStripIcon = new System.Windows.Forms.ContextMenuStrip(this.components);
             this.toolStripMenuItemRestore = new System.Windows.Forms.ToolStripMenuItem();
             this.toolStripMenuItemQuit = new System.Windows.Forms.ToolStripMenuItem();
-            this.buttonClearLog = new System.Windows.Forms.Button();
             this.groupBox1.SuspendLayout();
             ((System.ComponentModel.ISupportInitialize)(this.numericMountInterval)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.numericMountDuration)).BeginInit();
@@ -244,6 +244,16 @@
             this.groupBox4.TabStop = false;
             this.groupBox4.Text = "Results";
             // 
+            // buttonClearLog
+            // 
+            this.buttonClearLog.Location = new System.Drawing.Point(225, 389);
+            this.buttonClearLog.Name = "buttonClearLog";
+            this.buttonClearLog.Size = new System.Drawing.Size(187, 28);
+            this.buttonClearLog.TabIndex = 4;
+            this.buttonClearLog.Text = "Clear log";
+            this.buttonClearLog.UseVisualStyleBackColor = true;
+            this.buttonClearLog.Click += new System.EventHandler(this.buttonClearLog_Click);
+            // 
             // timerGhost
             // 
             this.timerGhost.Interval = 600000;
@@ -292,9 +302,9 @@
             this.label3.AutoSize = true;
             this.label3.Location = new System.Drawing.Point(6, 25);
             this.label3.Name = "label3";
-            this.label3.Size = new System.Drawing.Size(121, 13);
+            this.label3.Size = new System.Drawing.Size(105, 13);
             this.label3.TabIndex = 1;
-            this.label3.Text = "Image file for device #0:";
+            this.label3.Text = "Image file for device:";
             // 
             // textBoxImage
             // 
@@ -339,16 +349,6 @@
             this.toolStripMenuItemQuit.Size = new System.Drawing.Size(127, 22);
             this.toolStripMenuItemQuit.Text = "Quit";
             this.toolStripMenuItemQuit.Click += new System.EventHandler(this.toolStripMenuItemQuit_Click);
-            // 
-            // buttonClearLog
-            // 
-            this.buttonClearLog.Location = new System.Drawing.Point(225, 389);
-            this.buttonClearLog.Name = "buttonClearLog";
-            this.buttonClearLog.Size = new System.Drawing.Size(187, 28);
-            this.buttonClearLog.TabIndex = 4;
-            this.buttonClearLog.Text = "Clear log";
-            this.buttonClearLog.UseVisualStyleBackColor = true;
-            this.buttonClearLog.Click += new System.EventHandler(this.buttonClearLog_Click);
             // 
             // MainForm
             // 

@@ -245,13 +245,13 @@ namespace GhostGUI
                 return;
             }
 
-            if (!Path.GetFileNameWithoutExtension(FullPath).Contains('0'))
+            /*if (!Path.GetFileNameWithoutExtension(FullPath).Contains('0'))
             {
                 MessageBox.Show(this, "The file name must\ncontain a '0'!");
                 textBoxImage.SelectAll();
                 textBoxImage.Focus();
                 return;
-            }
+            }*/
 
             Ghost.ImageFileName = FullPath;
             buttonApplyConfig.Enabled = false;

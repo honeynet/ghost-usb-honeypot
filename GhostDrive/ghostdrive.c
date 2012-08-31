@@ -281,7 +281,7 @@ NTSTATUS GhostDriveInitImage(WDFDEVICE Device, ULONG ID) {
 	UNICODE_STRING FileToMount, RegValue;
 	NTSTATUS status;
 	WDFKEY ParametersKey;
-	DECLARE_CONST_UNICODE_STRING(ValueName, L"ImageFileName");
+	DECLARE_CONST_UNICODE_STRING(ValueName, L"ImageFileName0");
 	USHORT ByteLength = 0;
 	PWCHAR Buffer;
 	int i;
@@ -299,6 +299,7 @@ NTSTATUS GhostDriveInitImage(WDFDEVICE Device, ULONG ID) {
 		return status;
 	}
 	
+	ValueName.Buffer[13] = (WCHAR)(ID + 0x30);
 	status = WdfRegistryQueryUnicodeString(ParametersKey, &ValueName, &ByteLength, NULL);
 	if (status != STATUS_BUFFER_OVERFLOW && !NT_SUCCESS(status)) {
 		KdPrint(("Could not obtain the length of the image file name from the registry\n"));
@@ -340,13 +341,13 @@ NTSTATUS GhostDriveInitImage(WDFDEVICE Device, ULONG ID) {
 #endif	
 	
 	/* Set the correct ID in the file name */
-	for (i = 0; i < FileToMount.Length; i++) {
+	/*for (i = 0; i < FileToMount.Length; i++) {
 		if (FileToMount.Buffer[i] == L'0') {
 			KdPrint(("Inserting ID into device name\n"));
 			FileToMount.Buffer[i] = (WCHAR)(ID + 0x30);
 			break;
 		}
-	}
+	}*/
 	
 	FileSize.QuadPart = 100 * 1024 * 1024;
 	KdPrint(("Image file name: %wZ\n", &FileToMount));

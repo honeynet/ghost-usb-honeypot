@@ -11,7 +11,8 @@ namespace GhostGUI
     public class Ghost
     {
         protected const string ParamRegPath = "HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services\\ghostdrive\\Parameters";
-        protected static string GhostImageFileName = (String)Microsoft.Win32.Registry.GetValue(ParamRegPath, "ImageFileName", "");
+        protected const string ImageSubKey = "ImageFileName9";
+        protected static string GhostImageFileName = (String)Microsoft.Win32.Registry.GetValue(ParamRegPath, ImageSubKey, "");
 
         protected const int GhostDeviceID = 9;
         [UnmanagedFunctionPointer(CallingConvention.StdCall)]
@@ -41,7 +42,7 @@ namespace GhostGUI
             set
             {
                 GhostImageFileName = value;
-                Microsoft.Win32.Registry.SetValue(ParamRegPath, "ImageFileName", value);
+                Microsoft.Win32.Registry.SetValue(ParamRegPath, ImageSubKey, value);
             }
         }
 

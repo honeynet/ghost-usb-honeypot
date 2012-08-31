@@ -79,7 +79,16 @@ AddReg = GhostDriveParameters
 
 
 [GhostDriveParameters]
-HKR,Parameters,"ImageFileName",,"C:\gd0.img"
+HKR,Parameters,"ImageFileName0",,"C:\gd0.img"
+HKR,Parameters,"ImageFileName1",,"C:\gd1.img"
+HKR,Parameters,"ImageFileName2",,"C:\gd2.img"
+HKR,Parameters,"ImageFileName3",,"C:\gd3.img"
+HKR,Parameters,"ImageFileName4",,"C:\gd4.img"
+HKR,Parameters,"ImageFileName5",,"C:\gd5.img"
+HKR,Parameters,"ImageFileName6",,"C:\gd6.img"
+HKR,Parameters,"ImageFileName7",,"C:\gd7.img"
+HKR,Parameters,"ImageFileName8",,"C:\gd8.img"
+HKR,Parameters,"ImageFileName9",,"C:\gdgui.img"
 
 
 [GhostDriveDevice.CoInstallers]
