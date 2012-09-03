@@ -81,58 +81,6 @@ BOOL WINAPI DllMain(HINSTANCE hinstDll, DWORD fdwReason, LPVOID lpvReserved) {
 }*/
 
 
-PGHOST_DRIVE_WRITER_INFO_RESPONSE _GetWriterInfo(HANDLE Device, USHORT Index, BOOLEAN Block) {
-	GHOST_DRIVE_WRITER_INFO_PARAMETERS WriterInfoParams;
-	BOOL result;
-	SIZE_T RequiredSize;
-	DWORD BytesReturned;
-	PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
-	
-	WriterInfoParams.Block = Block;
-	WriterInfoParams.Index = Index;
-	
-	result = DeviceIoControl(Device,
-		IOCTL_GHOST_DRIVE_GET_WRITER_INFO,
-		&WriterInfoParams,
-		sizeof(GHOST_DRIVE_WRITER_INFO_PARAMETERS),
-		&RequiredSize,
-		sizeof(SIZE_T),
-		&BytesReturned,
-		NULL);
-
-	if (result == FALSE) {
-		// Probably no more data available
-		//printf("No more data\n");
-		return NULL;
-	}
-	
-	//printf("%d bytes returned\n", BytesReturned);
-	//printf("Need %d bytes\n", RequiredSize);
-	
-	WriterInfo = malloc(RequiredSize);
-	ZeroMemory(WriterInfo, RequiredSize);
-	//printf("Retrieving actual data...\n");
-	
-	result = DeviceIoControl(Device,
-		IOCTL_GHOST_DRIVE_GET_WRITER_INFO,
-		&WriterInfoParams,
-		sizeof(GHOST_DRIVE_WRITER_INFO_PARAMETERS),
-		WriterInfo,
-		RequiredSize,
-		&BytesReturned,
-		NULL);
-
-	if (result == FALSE) {
-		//printf("Error: IOCTL code failed: %d\n", GetLastError());
-		free(WriterInfo);
-		return NULL;
-	}
-	
-	//printf("Returned %d bytes\n", BytesReturned);
-	return WriterInfo;
-}
-
-
 DWORD WINAPI InfoThread(LPVOID Parameter) {
 	PGHOST_DEVICE GhostDevice;
 	char dosdevice[] = "\\\\.\\GhostDrive0";
@@ -140,13 +88,24 @@ DWORD WINAPI InfoThread(LPVOID Parameter) {
 	PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
 	USHORT i = 0;
 	PGHOST_INCIDENT Incident;
+	OVERLAPPED Overlapped;
+	HANDLE Events[2];
 	
 	if (Parameter == NULL) {
+		return -1;
+	}
+
+	ZeroMemory(&Overlapped, sizeof(OVERLAPPED));
+	Overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+	if (Overlapped.hEvent == NULL) {
 		return -1;
 	}
 	
 	GhostDevice = (PGHOST_DEVICE) Parameter;
 	dosdevice[14] = GhostDevice->DeviceID + 0x30;
+	
+	Events[0] = GhostDevice->StopEvent;
+	Events[1] = Overlapped.hEvent;
 	
 	// Open the device
 	hDevice = CreateFile(dosdevice,
@@ -154,7 +113,7 @@ DWORD WINAPI InfoThread(LPVOID Parameter) {
 		FILE_SHARE_READ | FILE_SHARE_WRITE,
 		NULL,
 		OPEN_EXISTING,
-		FILE_ATTRIBUTE_NORMAL,
+		FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED,
 		NULL);
 
 	if (hDevice == INVALID_HANDLE_VALUE) {
@@ -163,15 +122,69 @@ DWORD WINAPI InfoThread(LPVOID Parameter) {
 	
 	// Wait for writer information
 	while (1) {
-		WriterInfo = _GetWriterInfo(hDevice, i, TRUE);
-		if (WriterInfo == NULL) {
+		GHOST_DRIVE_WRITER_INFO_PARAMETERS WriterInfoParams;
+		SIZE_T RequiredSize;
+		DWORD BytesReturned;
+		PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
+		
+		WriterInfoParams.Block = TRUE;
+		WriterInfoParams.Index = i;
+
+		DeviceIoControl(hDevice,
+			IOCTL_GHOST_DRIVE_GET_WRITER_INFO,
+			&WriterInfoParams,
+			sizeof(GHOST_DRIVE_WRITER_INFO_PARAMETERS),
+			&RequiredSize,
+			sizeof(SIZE_T),
+			&BytesReturned,
+			&Overlapped);
+		
+		// Wait until either we've received information or we're told to terminate
+		if (WaitForMultipleObjects(2, Events, FALSE, INFINITE) == WAIT_OBJECT_0) {
+			break;
+		}
+
+		if (Overlapped.Internal != 0) {
+			// Probably no more data available
+			//printf("No more data\n");
 			break;
 		}
 		
-		// Are we supposed to terminate?
-		if (WaitForSingleObject(GhostDevice->StopEvent, 0) == WAIT_OBJECT_0) {
-			return 0;
+		ResetEvent(Overlapped.hEvent);
+
+		//printf("%d bytes returned\n", BytesReturned);
+		//printf("Need %d bytes\n", RequiredSize);
+
+		WriterInfo = malloc(RequiredSize);
+		ZeroMemory(WriterInfo, RequiredSize);
+		//printf("Retrieving actual data...\n");
+
+		DeviceIoControl(hDevice,
+			IOCTL_GHOST_DRIVE_GET_WRITER_INFO,
+			&WriterInfoParams,
+			sizeof(GHOST_DRIVE_WRITER_INFO_PARAMETERS),
+			WriterInfo,
+			RequiredSize,
+			&BytesReturned,
+			&Overlapped);
+			
+		// Wait until either we've received information or we're told to terminate
+		if (WaitForMultipleObjects(2, Events, FALSE, INFINITE) == WAIT_OBJECT_0) {
+			break;
 		}
+
+		if (Overlapped.Internal != 0) {
+			//printf("Error: IOCTL code failed: %d\n", GetLastError());
+			free(WriterInfo);
+			break;
+		}
+		
+		ResetEvent(Overlapped.hEvent);
+		
+		// Are we supposed to terminate?
+		/*if (WaitForSingleObject(GhostDevice->StopEvent, 0) == WAIT_OBJECT_0) {
+			break;
+		}*/
 		
 		Incident = malloc(sizeof(GHOST_INCIDENT));
 		Incident->IncidentID = i;
@@ -185,7 +198,9 @@ DWORD WINAPI InfoThread(LPVOID Parameter) {
 		i++;
 	}
 	
+	CancelIo(hDevice);
 	CloseHandle(hDevice);
+	CloseHandle(Overlapped.hEvent);
 	return 0;
 }
 

@@ -3,3 +3,4 @@ objfre_*
 *.log
 GhostGUI/bin
 GhostGUI/obj
+Release*

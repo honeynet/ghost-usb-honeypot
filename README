@@ -2,7 +2,7 @@
 
 Ghost is a honeypot for malware that uses USB storage devices
 for propagation. It is able to capture such malware without
-any further knowledge -- especially, it doesn't need signatures
+any further knowledge -- in particular, it doesn't need signatures
 or the like to accomplish its task.
 
 Detection is achieved by emulating a USB flash drive on

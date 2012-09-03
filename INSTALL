@@ -1,14 +1,14 @@
 
 === Building the honeypot ===
 
-You have to build the two device drivers "GhostBus.sys" and "GhostDrive.sys"
-as well as the command line tool "GhostTool.exe" from the source code.
-Please see http://code.google.com/p/ghost-usb-honeypot/wiki/BuildGuide for
-instructions.
+If you don't want to use the precompiled packages available from Ghost's website,
+you can alternatively compile the code yourself. Please see
+http://code.google.com/p/ghost-usb-honeypot/wiki/BuildGuide for instructions.
 
 
 === Installing the honeypot ===
 
 Once you have compiled the code, you can install Ghost on your system.
-For detailed instructions on how to do so, please refer to
+Basically, you just have to run "Setup.exe" with administrative privileges.
+For detailed instructions, please refer to
 http://code.google.com/p/ghost-usb-honeypot/wiki/InstallGuide.

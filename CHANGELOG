@@ -1,0 +1,12 @@
+                    CHANGELOG
+
+Version 0.1
+ - Initial release
+
+Version 0.2
+ - Support for Windows 7 (no formatting of emulated devices yet)
+ - Information about PID, TID and loaded modules in processes that write to the emulated device
+ - Some more IOCTLs for more realistic emulation
+ - Location of Ghost's image files can be set in the registry
+ - Installer
+ - Graphical frontend
