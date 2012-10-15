@@ -1,6 +1,6 @@
 TARGETNAME=GhostDrive
 TARGETTYPE=DRIVER
 
-SOURCES=ghostdrive.c information.c file_io.c device_control.c
+SOURCES=ghostdrive.c
 
 KMDF_VERSION_MAJOR=1

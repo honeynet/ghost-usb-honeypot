@@ -34,7 +34,7 @@
 #include <winioctl.h>
 
 #include <ghostbus.h>
-#include <ghostdrive_io.h>
+#include <ghostbus.h>
 #include <version.h>
 
 
@@ -193,6 +193,9 @@ DWORD WINAPI InfoThread(LPVOID Parameter) {
 		GhostDevice->Incidents = Incident;
 		
 		// Invoke the callback function
+		//
+		// This thread is only ever created if the callback function is non-NULL, so
+		// we don't need to check again.
 		GhostDevice->Callback(GhostDevice->DeviceID, Incident->IncidentID, GhostDevice->Context);
 		
 		i++;

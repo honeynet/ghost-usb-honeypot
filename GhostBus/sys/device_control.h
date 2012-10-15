@@ -32,7 +32,7 @@
 #include <ntddk.h>
 #include <wdf.h>
 
-#include "ghostdrive.h"
+#include "ghostbus_internal.h"
 
 
 EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL GhostDeviceControlDispatch;

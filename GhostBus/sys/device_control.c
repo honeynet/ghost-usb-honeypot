@@ -27,8 +27,8 @@
 
 
 #include "device_control.h"
-#include "ghostdrive.h"
-#include "ghostdrive_io.h"
+#include "ghostbus_internal.h"
+#include "ghostbus.h"
 #include "file_io.h"
 
 #include <ntdddisk.h>

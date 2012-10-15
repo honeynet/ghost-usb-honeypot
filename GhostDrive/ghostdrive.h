@@ -31,43 +31,26 @@
 #include <ntddk.h>
 #include <wdf.h>
 
-#include "information.h"
-
 
 #define DRIVE_DEVICE_NAME L"\\Device\\GhostDrive0"
 #define DRIVE_LINK_NAME L"\\DosDevices\\GhostDrive0"
 #define DEVICE_SDDL_STRING L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;BU)"
 
-/*
- * Uncomment the following line in order to use the image file name
- * defined below rather than the one that is stored in the registry.
- * The file name must contain a '0' (zero), which is replaced with
- * the device ID.
- */
-// #define USE_FIXED_IMAGE_NAME
-#define IMAGE_NAME L"\\DosDevices\\C:\\gd0.img"
-
 #define TAG 'rDhG'
 
 
 /*
+ * Data structures
+ *
  * The context struct is attached to each instance of the virtual
  * device. It contains information about the device itself and the
  * image file that may be mounted.
  */
 typedef struct _GHOST_DRIVE_CONTEXT {
 
-	BOOLEAN ImageMounted;
-	BOOLEAN ImageWritten;
-	HANDLE ImageFile;
-	LARGE_INTEGER ImageSize;
 	ULONG ID;
 	WCHAR DeviceName[256];
 	USHORT DeviceNameLength;
-	ULONG ChangeCount;
-	USHORT WriterInfoCount;
-	PGHOST_INFO_PROCESS_DATA WriterInfo;   // paged memory
-	WDFQUEUE WriterInfoQueue;
 
 } GHOST_DRIVE_CONTEXT, *PGHOST_DRIVE_CONTEXT;
 

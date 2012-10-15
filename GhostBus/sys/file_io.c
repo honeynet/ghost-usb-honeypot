@@ -30,8 +30,8 @@
 
 #include "device_control.h"
 #include "file_io.h"
-#include "ghostdrive.h"
-#include "ghostdrive_io.h"
+#include "ghostbus_internal.h"
+#include "ghostbus.h"
 #include "information.h"
 
 
@@ -77,7 +77,7 @@ NTSTATUS GhostFileIoMountImage(WDFDEVICE Device, PUNICODE_STRING ImageName, PLAR
 						NULL,
 						0);
 	if (!NT_SUCCESS(status)) {
-		KdPrint(("Could not create or open the image file %wZ", &ImageName));
+		KdPrint(("Could not create or open the image file %wZ", ImageName));
 		return status;
 	}
 

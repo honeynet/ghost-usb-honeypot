@@ -31,7 +31,6 @@
 #include <winioctl.h>
 
 #include <ghostbus.h>
-#include <ghostdrive_io.h>
 #include <version.h>
 
 

@@ -25,10 +25,13 @@
  * 
  */
 
-#include "driver.h"
+#include "ghostbus_internal.h"
 #include "ghostbus.h"
+#include "file_io.h"
+#include "device_control.h"
 #include <version.h>
 
+#include <ntstrsafe.h>
 #include <wdmguid.h>
 
 
@@ -65,6 +68,36 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 	}
 
 	return status;
+}
+
+
+/*
+ * This function is called just before the device object is destroyed. We use it
+ * to unmount the image file in order to ensure that all data is written to disk
+ * successfully before the file handle is discarded.
+ */
+VOID GhostDriveDeviceCleanup(WDFOBJECT Object)
+{
+	NTSTATUS status;
+	PGHOST_DRIVE_CONTEXT Context;
+	PGHOST_INFO_PROCESS_DATA ProcessInfo;
+	int counter;
+
+	Context = GhostDriveGetContext(Object);
+	KdPrint(("Image has been written to: %u\n", Context->ImageWritten));
+	if (Context->ImageMounted)
+		GhostFileIoUmountImage(Object);
+	
+	// Free the writer info structs
+	counter = 0;
+	while (Context->WriterInfo != NULL) {
+		ProcessInfo = Context->WriterInfo;
+		Context->WriterInfo = Context->WriterInfo->Next;
+		GhostInfoFreeProcessData(ProcessInfo);
+		counter++;
+	}
+	
+	KdPrint(("%d info struct(s) freed\n", counter));
 }
 
 
@@ -149,6 +182,92 @@ NTSTATUS GhostBusDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 VOID GhostBusUnload(WDFDRIVER Driver)
 {
 	KdPrint(("Unload called\n"));
+}
+
+
+NTSTATUS GhostDriveInitImage(WDFDEVICE Device, ULONG ID) {
+	WCHAR imagename[] = IMAGE_NAME;
+	LARGE_INTEGER FileSize;
+	UNICODE_STRING FileToMount, RegValue;
+	NTSTATUS status;
+	WDFKEY ParametersKey;
+	DECLARE_CONST_UNICODE_STRING(ValueName, L"ImageFileName0");
+	USHORT ByteLength = 0;
+	PWCHAR Buffer;
+	int i;
+	PCWSTR Prefix = L"\\DosDevices\\";
+	size_t PrefixLength;
+	
+#ifndef USE_FIXED_IMAGE_NAME
+	KdPrint(("Reading the image file name from the registry\n"));
+	
+	/* Read the desired image file name from the registry */
+	status = WdfDriverOpenParametersRegistryKey(WdfGetDriver(), GENERIC_READ,
+		WDF_NO_OBJECT_ATTRIBUTES, &ParametersKey);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not open the driver's registry key\n"));
+		return status;
+	}
+	
+	ValueName.Buffer[13] = (WCHAR)(ID + 0x30);
+	status = WdfRegistryQueryUnicodeString(ParametersKey, &ValueName, &ByteLength, NULL);
+	if (status != STATUS_BUFFER_OVERFLOW && !NT_SUCCESS(status)) {
+		KdPrint(("Could not obtain the length of the image file name from the registry\n"));
+		return status;
+	}
+	
+	Buffer = ExAllocatePoolWithTag(NonPagedPool, ByteLength, TAG);
+	RtlInitEmptyUnicodeString(&RegValue, Buffer, ByteLength);
+	
+	status = WdfRegistryQueryUnicodeString(ParametersKey, &ValueName, NULL, &RegValue);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not read the image file name from the registry\n"));
+		return status;
+	}	 
+	
+	WdfRegistryClose(ParametersKey);
+	
+	/* Add the required "\DosDevices" prefix */
+	PrefixLength = wcslen(Prefix) * sizeof(WCHAR);
+	Buffer = ExAllocatePoolWithTag(NonPagedPool, ByteLength + PrefixLength, TAG);
+	RtlInitEmptyUnicodeString(&FileToMount, Buffer, ByteLength + PrefixLength);
+	status = RtlUnicodeStringCopyString(&FileToMount, Prefix);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("String copy operation failed\n"));
+		return status;
+	}
+	status = RtlUnicodeStringCat(&FileToMount, &RegValue);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("String copy operation failed\n"));
+		return status;
+	}
+	
+	ExFreePoolWithTag(RegValue.Buffer, TAG);
+#else
+	KdPrint(("Using the image file name that is compiled into the driver\n"));
+	
+	/* Use the fixed image file name */
+	RtlInitUnicodeString(&FileToMount, imagename);
+#endif	
+	
+	/* Set the correct ID in the file name */
+	/*for (i = 0; i < FileToMount.Length; i++) {
+		if (FileToMount.Buffer[i] == L'0') {
+			KdPrint(("Inserting ID into device name\n"));
+			FileToMount.Buffer[i] = (WCHAR)(ID + 0x30);
+			break;
+		}
+	}*/
+	
+	FileSize.QuadPart = 100 * 1024 * 1024;
+	KdPrint(("Image file name: %wZ\n", &FileToMount));
+	status = GhostFileIoMountImage(Device, &FileToMount, &FileSize);
+	
+#ifndef USE_FIXED_IMAGE_NAME
+	ExFreePoolWithTag(FileToMount.Buffer, TAG);
+#endif
+	
+	return status;
 }
 
 
@@ -286,6 +405,22 @@ VOID GhostBusDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBuff
 }
 
 
+NTSTATUS GhostDriveQueryRemove(WDFDEVICE Device) {
+	PGHOST_DRIVE_CONTEXT Context;
+	
+	KdPrint(("QueryRemove\n"));
+	
+	Context = GhostDriveGetContext(Device);
+	KdPrint(("Draining the writer info queue...\n"));
+	WdfIoQueuePurgeSynchronously(Context->WriterInfoQueue);
+	
+	if (!NT_SUCCESS(GhostFileIoUmountImage(Device))) {
+		KdPrint(("Could not unmount the image\n"));
+	}
+	
+	return STATUS_SUCCESS;
+}
+
 
 /*
  * The Windows Driver Framework calls this function whenever a new child device has to be created.
@@ -300,13 +435,48 @@ NTSTATUS GhostBusChildListCreateDevice(WDFCHILDLIST ChildList,
 	DECLARE_CONST_UNICODE_STRING(DeviceDescription, GHOST_DRIVE_DESCRIPTION);
 	DECLARE_CONST_UNICODE_STRING(DeviceLocation, GHOST_DRIVE_LOCATION);
 	DECLARE_UNICODE_STRING_SIZE(InstanceID, 2 * sizeof(WCHAR));		// the ID is only one character
+	DECLARE_CONST_UNICODE_STRING(DeviceSDDL, DEVICE_SDDL_STRING);
 	WDFDEVICE ChildDevice;
 	WDF_DEVICE_PNP_CAPABILITIES PnpCaps;
 	PGHOST_DRIVE_IDENTIFICATION Identification = (PGHOST_DRIVE_IDENTIFICATION)IdentificationDescription;
 	NTSTATUS status;
+	WDF_OBJECT_ATTRIBUTES DeviceAttr;
+	PGHOST_DRIVE_CONTEXT Context;
+	ULONG ID;
+	WDF_PNPPOWER_EVENT_CALLBACKS PnpPowerCallbacks;
 
 	KdPrint(("ChildListCreateDevice called\n"));
+	ID = ((PGHOST_DRIVE_IDENTIFICATION) IdentificationDescription)->Id;
+	
+	// Define the context for the new device
+	WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&DeviceAttr, GHOST_DRIVE_CONTEXT);
+	DeviceAttr.EvtCleanupCallback = GhostDriveDeviceCleanup;
+	DeviceAttr.ExecutionLevel = WdfExecutionLevelPassive;
+	
+	/*
+	// begin tmp
+	{
+		DECLARE_CONST_UNICODE_STRING(GenDisk, L"GenDisk");
+		
+		// Set the device ID
+		status = WdfPdoInitAssignDeviceID(ChildInit, &GenDisk);
+		if (!NT_SUCCESS(status)) {
+			KdPrint(("Could not set the child device's ID\n"));
+			WdfDeviceInitFree(ChildInit);
+			return status;
+		}
 
+		// Set the hardware ID to the same value
+		status = WdfPdoInitAddHardwareID(ChildInit, &GenDisk);
+		if (!NT_SUCCESS(status)) {
+			KdPrint(("Could not set the child device's hardware ID\n"));
+			WdfDeviceInitFree(ChildInit);
+			return status;
+		}
+	}
+	// end tmp
+	*/
+	
 	// Set the device ID
 	status = WdfPdoInitAssignDeviceID(ChildInit, &DeviceID);
 	if (!NT_SUCCESS(status)) {
@@ -346,9 +516,24 @@ NTSTATUS GhostBusChildListCreateDevice(WDFCHILDLIST ChildList,
 		WdfDeviceInitFree(ChildInit);
 		return status;
 	}
+	
+	// Set device properties
+	WdfDeviceInitSetDeviceType(ChildInit, FILE_DEVICE_DISK);
+	WdfDeviceInitSetIoType(ChildInit, WdfDeviceIoDirect);
+	WdfDeviceInitSetExclusive(ChildInit, FALSE);
+	status = WdfDeviceInitAssignSDDLString(ChildInit, &DeviceSDDL);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not assign an SDDL string\n"));
+		return status;
+	}
+	
+	// Register callbacks
+	WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&PnpPowerCallbacks);
+	PnpPowerCallbacks.EvtDeviceQueryRemove = GhostDriveQueryRemove;
+	WdfDeviceInitSetPnpPowerEventCallbacks(ChildInit, &PnpPowerCallbacks);
 
 	// Create the device
-	status = WdfDeviceCreate(&ChildInit, WDF_NO_OBJECT_ATTRIBUTES, &ChildDevice);
+	status = WdfDeviceCreate(&ChildInit, &DeviceAttr, &ChildDevice);
 	if (!NT_SUCCESS(status)) {
 		KdPrint(("Could not create the child device\n"));
 		return status;
@@ -368,6 +553,55 @@ NTSTATUS GhostBusChildListCreateDevice(WDFCHILDLIST ChildList,
 	PnpCaps.NoDisplayInUI = WdfFalse;
 	PnpCaps.UINumber = Identification->Id;
 	WdfDeviceSetPnpCapabilities(ChildDevice, &PnpCaps);
+	
+	// Initialize the device extension
+	Context = GhostDriveGetContext(ChildDevice);
+	Context->ImageMounted = FALSE;
+	Context->ImageWritten = FALSE;
+	Context->ID = ID;
+	Context->ChangeCount = 0;
+	Context->WriterInfoCount = 0;
+	Context->WriterInfo = NULL;
+	
+	// begin tmp
+	{
+		WDF_OBJECT_ATTRIBUTES QueueAttr;
+		WDF_IO_QUEUE_CONFIG QueueConfig;
+		
+		// Set up the device's I/O queue to handle I/O requests
+		WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&QueueConfig, WdfIoQueueDispatchSequential);
+		QueueConfig.EvtIoRead = GhostFileIoRead;
+		QueueConfig.EvtIoWrite = GhostFileIoWrite;
+		QueueConfig.EvtIoDeviceControl = GhostDeviceControlDispatch;
+	
+		WDF_OBJECT_ATTRIBUTES_INIT(&QueueAttr);
+		QueueAttr.ExecutionLevel = WdfExecutionLevelPassive;	// necessary to collect writer information
+
+		status = WdfIoQueueCreate(ChildDevice, &QueueConfig, &QueueAttr, NULL);
+		if (!NT_SUCCESS(status)) {
+			KdPrint(("Could not create the default I/O queue\n"));
+			return status;
+		}
+		
+		// Create a separate queue for blocking writer info requests
+		WDF_IO_QUEUE_CONFIG_INIT(&QueueConfig, WdfIoQueueDispatchManual);
+
+		status = WdfIoQueueCreate(ChildDevice, &QueueConfig, &QueueAttr, &Context->WriterInfoQueue);
+		if (!NT_SUCCESS(status)) {
+			KdPrint(("Could not create the I/O queue for writer info requests\n"));
+			return status;
+		}
+	}
+	// end tmp
+	
+	/*
+	// Mount the image
+	status = GhostDriveInitImage(ChildDevice, ID);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Mount failed\n"));
+		return status;
+	}
+	*/
 
 	return STATUS_SUCCESS;
 }
