@@ -107,6 +107,10 @@ DWORD WINAPI InfoThread(LPVOID Parameter) {
 	Events[0] = GhostDevice->StopEvent;
 	Events[1] = Overlapped.hEvent;
 	
+	if (GhostDevice->Callback == NULL) {
+		return -1;
+	}
+	
 	// Open the device
 	hDevice = CreateFile(dosdevice,
 		0,
@@ -211,6 +215,31 @@ int DLLCALL GhostMountDevice(GhostIncidentCallback Callback, void *Context) {
 
 
 int DLLCALL GhostMountDeviceWithID(int DeviceID, GhostIncidentCallback Callback, void *Context) {
+	PGHOST_DEVICE GhostDevice;
+	
+	GhostDevice = (PGHOST_DEVICE) GhostMountDeviceWithIDNoThread(DeviceID, Callback, Context);
+	if (GhostDevice == NULL) {
+		return -1;
+	}
+	
+	// Start a thread that waits for incidents
+	if (Callback != NULL) {
+		GhostDevice->InfoThread = CreateThread(NULL, 0, InfoThread, GhostDevice, 0, NULL);
+		if (GhostDevice->InfoThread == NULL) {
+			LastError = 4;
+			return -1;
+		}
+	}
+	else {
+		GhostDevice->StopEvent = NULL;
+		GhostDevice->InfoThread = NULL;
+	}
+	
+	return GhostDevice->DeviceID;
+}
+
+
+void * DLLCALL GhostMountDeviceWithIDNoThread(int DeviceID, GhostIncidentCallback Callback, void *Context) {
 	HANDLE hDevice;
 	DWORD BytesReturned;
 	BOOL result;
@@ -220,7 +249,7 @@ int DLLCALL GhostMountDeviceWithID(int DeviceID, GhostIncidentCallback Callback,
 	// Check the device ID
 	if (DeviceID < -1 || DeviceID > 9) {
 		LastError = 5;
-		return -1;
+		return NULL;
 	}
 	
 	// Open the bus device
@@ -234,7 +263,7 @@ int DLLCALL GhostMountDeviceWithID(int DeviceID, GhostIncidentCallback Callback,
 
 	if (hDevice == INVALID_HANDLE_VALUE) {
 		LastError = 1;
-		return -1;
+		return NULL;
 	}
 
 	// "Plug in" the virtual USB device
@@ -249,7 +278,7 @@ int DLLCALL GhostMountDeviceWithID(int DeviceID, GhostIncidentCallback Callback,
 
 	if (result != TRUE || BytesReturned != sizeof(LONG)) {
 		LastError = 2;
-		return -1;
+		return NULL;
 	}
 
 	CloseHandle(hDevice);
@@ -258,27 +287,14 @@ int DLLCALL GhostMountDeviceWithID(int DeviceID, GhostIncidentCallback Callback,
 	GhostDevice->Callback = Callback;
 	GhostDevice->Context = Context;
 	GhostDevice->Incidents = NULL;
+	GhostDevice->StopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+	if (GhostDevice->StopEvent == NULL) {
+		LastError = 6;
+		return NULL;
+	}
 	DeviceListAdd(GhostDevice);
-	
-	// Start a thread that waits for incidents
-	if (Callback != NULL) {
-		GhostDevice->StopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-		if (GhostDevice->StopEvent == NULL) {
-			LastError = 6;
-			return -1;
-		}
-		GhostDevice->InfoThread = CreateThread(NULL, 0, InfoThread, GhostDevice, 0, NULL);
-		if (GhostDevice->InfoThread == NULL) {
-			LastError = 4;
-			return -1;
-		}
-	}
-	else {
-		GhostDevice->StopEvent = NULL;
-		GhostDevice->InfoThread = NULL;
-	}
 
-	return OutDeviceID;
+	return GhostDevice;
 }
 
 int DLLCALL GhostUmountDevice(int DeviceID) {
@@ -338,6 +354,8 @@ int DLLCALL GhostUmountDevice(int DeviceID) {
 		
 		// Wait until the thread has terminated
 		WaitForSingleObject(Device->InfoThread, INFINITE);
+	}
+	if (Device->StopEvent != NULL) {
 		CloseHandle(Device->StopEvent);
 	}
 	DeviceListRemove(DeviceID);

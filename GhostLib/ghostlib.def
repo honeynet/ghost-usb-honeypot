@@ -2,6 +2,7 @@ LIBRARY GhostLib
 EXPORTS
 	GhostMountDevice
 	GhostMountDeviceWithID
+	GhostMountDeviceWithIDNoThread
 	GhostUmountDevice
 	GhostGetLastError
 	GhostGetErrorDescription
@@ -9,3 +10,4 @@ EXPORTS
 	GhostGetThreadID
 	GhostGetNumModules
 	GhostGetModuleName
+	InfoThread
