@@ -50,11 +50,8 @@ void GhostDeviceControlGetDriveGeometry(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT
 void GhostDeviceControlGetLengthInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
 void GhostDeviceControlMountImage(WDFREQUEST Request, WDFDEVICE Device);
 void GhostDeviceControlUmountImage(WDFREQUEST Request, WDFDEVICE Device, PGHOST_DRIVE_CONTEXT Context);
-void GhostDeviceControlQueryDeviceName(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
-void GhostDeviceControlQueryUniqueId(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
 void GhostDeviceControlHandleWriterInfoRequest(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
 void GhostDeviceControlGetWriterInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
-void GhostDeviceControlLinkCreated(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
 
 
 /*
@@ -127,23 +124,6 @@ VOID GhostDeviceControlDispatch(WDFQUEUE Queue, WDFREQUEST Request, size_t Outpu
 		case IOCTL_GHOST_DRIVE_UMOUNT_IMAGE:
 			GhostDeviceControlUmountImage(Request, Device, Context);
 			break;
-
-		case IOCTL_MOUNTDEV_QUERY_DEVICE_NAME:
-			GhostDeviceControlQueryDeviceName(Request, Context);
-			break;
-
-		case IOCTL_MOUNTDEV_QUERY_UNIQUE_ID:
-			GhostDeviceControlQueryUniqueId(Request, Context);
-			break;
-		
-		case IOCTL_MOUNTDEV_QUERY_SUGGESTED_LINK_NAME:
-			KdPrint(("Invalid - Suggested link name\n"));
-			WdfRequestComplete(Request, STATUS_INVALID_DEVICE_REQUEST);
-			break;
-			
-		case IOCTL_MOUNTDEV_LINK_CREATED:
-            GhostDeviceControlLinkCreated(Request, Context);
-            break;
 
 		case IOCTL_STORAGE_QUERY_PROPERTY:
 			GhostDeviceControlQueryProperty(Request, Context);
@@ -560,91 +540,6 @@ void GhostDeviceControlUmountImage(WDFREQUEST Request, WDFDEVICE Device, PGHOST_
 }
 
 
-void GhostDeviceControlQueryDeviceName(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context) {
-	USHORT NameLength;
-	WDFMEMORY OutputMemory;
-	NTSTATUS status;
-
-	KdPrint(("QueryDeviceName\n"));
-
-	// Retrieve the output memory
-	status = WdfRequestRetrieveOutputMemory(Request, &OutputMemory);
-	if (!NT_SUCCESS(status)) {
-		KdPrint(("Could not retrieve the output memory: 0x%lx\n", status));
-		WdfRequestComplete(Request, status);
-		return;
-	}
-
-	NameLength = Context->DeviceNameLength - sizeof(WCHAR);
-
-	// Copy the length to the output buffer
-	status = WdfMemoryCopyFromBuffer(OutputMemory, FIELD_OFFSET(MOUNTDEV_NAME, NameLength), &NameLength, sizeof(USHORT));
-	if (!NT_SUCCESS(status)) {
-		KdPrint(("Could not copy the name's length to the output memory: 0x%lx\n", status));
-		WdfRequestComplete(Request, STATUS_BUFFER_TOO_SMALL);
-		return;
-	}
-
-	// Copy the data to the output buffer
-	status = WdfMemoryCopyFromBuffer(OutputMemory, FIELD_OFFSET(MOUNTDEV_NAME, Name), Context->DeviceName, Context->DeviceNameLength);
-	if (!NT_SUCCESS(status)) {
-		KdPrint(("Could not copy the name to the output memory: 0x%lx\n", status));
-		WdfRequestCompleteWithInformation(Request, STATUS_BUFFER_OVERFLOW, sizeof(MOUNTDEV_NAME));
-		return;
-	}
-
-	WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, Context->DeviceNameLength);
-}
-
-
-void GhostDeviceControlQueryUniqueId(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context) {
-	WDFMEMORY OutputMemory;
-	USHORT Length;
-	UCHAR UID;
-	NTSTATUS status;
-
-	KdPrint(("QueryUniqueID\n"));
-
-	/*if (BufferLength < sizeof(MOUNTDEV_UNIQUE_ID) + Context->DeviceNameLength - sizeof(UCHAR)) {
-		KdPrint(("Buffer too small: %u\n", BufferLength));
-		info = sizeof(MOUNTDEV_UNIQUE_ID) + Context->DeviceNameLength - sizeof(UCHAR);
-		status = STATUS_BUFFER_TOO_SMALL;
-		break;
-	}
-
-	UID->UniqueIdLength = Context->DeviceNameLength;
-	RtlCopyMemory(UID->UniqueId, Context->DeviceName, Context->DeviceNameLength);*/
-
-	// Retrieve the output memory
-	status = WdfRequestRetrieveOutputMemory(Request, &OutputMemory);
-	if (!NT_SUCCESS(status)) {
-		KdPrint(("Could not retrieve the output memory: 0x%lx\n", status));
-		WdfRequestComplete(Request, status);
-		return;
-	}
-
-	Length = 1;
-	UID = (UCHAR)Context->ID + 0x30;
-
-	// Copy the data to the output buffer
-	status = WdfMemoryCopyFromBuffer(OutputMemory, FIELD_OFFSET(MOUNTDEV_UNIQUE_ID, UniqueIdLength), &Length, sizeof(USHORT));
-	if (!NT_SUCCESS(status)) {
-		KdPrint(("Could not copy the ID's length to the output memory: 0x%lx\n", status));
-		WdfRequestComplete(Request, STATUS_BUFFER_TOO_SMALL);
-		return;
-	}
-
-	status = WdfMemoryCopyFromBuffer(OutputMemory, FIELD_OFFSET(MOUNTDEV_UNIQUE_ID, UniqueId), &UID, sizeof(UCHAR));
-	if (!NT_SUCCESS(status)) {
-		KdPrint(("Could not copy the ID's length to the output memory: 0x%lx\n", status));
-		WdfRequestComplete(Request, STATUS_BUFFER_TOO_SMALL);
-		return;
-	}
-
-	WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, Length + sizeof(USHORT));
-}
-
-
 void GhostDeviceControlHandleWriterInfoRequest(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context) {
 	NTSTATUS status;
 	PGHOST_DRIVE_WRITER_INFO_PARAMETERS WriterInfoParams;
@@ -801,22 +696,4 @@ void GhostDeviceControlGetWriterInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Co
 	
 	KdPrint(("WriterInfo copied\n"));
 	WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, RequiredSize);
-}
-
-
-void GhostDeviceControlLinkCreated(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context) {
-    NTSTATUS status;
-    PMOUNTDEV_NAME MountdevName;
-    
-    KdPrint(("Mount manager reports link creation\n"));
-    
-    status = WdfRequestRetrieveInputBuffer(Request, sizeof(MOUNTDEV_NAME), &MountdevName, NULL);
-	if (!NT_SUCCESS(status)) {
-		KdPrint(("Could not retrieve input parameters: 0x%lx\n", status));
-		WdfRequestComplete(Request, STATUS_UNSUCCESSFUL);
-		return;
-	}
-	
-    KdPrint(("Link: %ws\n", MountdevName->Name));
-    WdfRequestComplete(Request, STATUS_SUCCESS);
 }

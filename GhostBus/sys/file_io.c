@@ -141,6 +141,7 @@ NTSTATUS GhostFileIoMountImage(WDFDEVICE Device, PUNICODE_STRING ImageName, PLAR
 	// Store information about the image in the device context
 	Context->ImageMounted = TRUE;
 	Context->ChangeCount++;
+	KdPrint(("Mount successful"));
 	return STATUS_SUCCESS;
 }
 

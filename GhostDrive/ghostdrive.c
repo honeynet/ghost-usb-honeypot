@@ -33,6 +33,7 @@
 #include <ntdddisk.h>
 #include <ntstrsafe.h>
 #include <mountmgr.h>
+#include <mountdev.h>
 
 
 /* Prototypes */
@@ -44,6 +45,9 @@ EVT_WDF_OBJECT_CONTEXT_CLEANUP GhostDriveDeviceCleanup;
 EVT_WDF_DEVICE_QUERY_REMOVE GhostDriveQueryRemove;
 
 NTSTATUS GhostDriveInitImage(WDFDEVICE Device, ULONG ID);
+void GhostDeviceControlLinkCreated(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
+void GhostDeviceControlQueryUniqueId(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
+void GhostDeviceControlQueryDeviceName(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
 
 
 VOID GhostFileIoReadWrite(WDFQUEUE Queue, WDFREQUEST Request, size_t Length)
@@ -68,20 +72,142 @@ VOID GhostFileIoReadWrite(WDFQUEUE Queue, WDFREQUEST Request, size_t Length)
 VOID GhostDeviceControlDispatch(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBufferLength,
 			size_t InputBufferLength, ULONG IoControlCode)
 {
-	WDFIOTARGET IoTarget;
-	WDF_REQUEST_SEND_OPTIONS Options;
-	
-	IoTarget = WdfDeviceGetIoTarget(WdfIoQueueGetDevice(Queue));
-	if (IoTarget == NULL) {
-		KdPrint(("Drive: I/O target is NULL\n"));
+	WDFDEVICE Device = WdfIoQueueGetDevice(Queue);
+	PGHOST_DRIVE_CONTEXT Context = GhostDriveGetContext(Device);
+
+	switch (IoControlCode) {
+
+		case IOCTL_MOUNTDEV_QUERY_DEVICE_NAME:
+			GhostDeviceControlQueryDeviceName(Request, Context);
+			break;
+
+		case IOCTL_MOUNTDEV_QUERY_UNIQUE_ID:
+			GhostDeviceControlQueryUniqueId(Request, Context);
+			break;
+		
+		case IOCTL_MOUNTDEV_QUERY_SUGGESTED_LINK_NAME:
+			KdPrint(("Invalid - Suggested link name\n"));
+			WdfRequestComplete(Request, STATUS_INVALID_DEVICE_REQUEST);
+			break;
+			
+		case IOCTL_MOUNTDEV_LINK_CREATED:
+            GhostDeviceControlLinkCreated(Request, Context);
+            break;
+
+		default:
+		{
+			WDFIOTARGET IoTarget;
+			WDF_REQUEST_SEND_OPTIONS Options;
+			
+			KdPrint(("Drive: Forwarding to bus\n"));
+
+			IoTarget = WdfDeviceGetIoTarget(WdfIoQueueGetDevice(Queue));
+			if (IoTarget == NULL) {
+				KdPrint(("Drive: I/O target is NULL\n"));
+				return;
+			}
+
+			WDF_REQUEST_SEND_OPTIONS_INIT(&Options, WDF_REQUEST_SEND_OPTION_SEND_AND_FORGET);
+			WdfRequestFormatRequestUsingCurrentType(Request);
+			if (!WdfRequestSend(Request, IoTarget, &Options)) {
+				KdPrint(("Drive: Send failed\n"));
+			}
+			break;
+		}
+	}
+}
+
+
+void GhostDeviceControlLinkCreated(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context) {
+    NTSTATUS status;
+    PMOUNTDEV_NAME MountdevName;
+
+    KdPrint(("Mount manager reports link creation\n"));
+
+    status = WdfRequestRetrieveInputBuffer(Request, sizeof(MOUNTDEV_NAME), &MountdevName, NULL);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not retrieve input parameters: 0x%lx\n", status));
+		WdfRequestComplete(Request, STATUS_UNSUCCESSFUL);
 		return;
 	}
-	
-	WDF_REQUEST_SEND_OPTIONS_INIT(&Options, WDF_REQUEST_SEND_OPTION_SEND_AND_FORGET);
-	WdfRequestFormatRequestUsingCurrentType(Request);
-	if (!WdfRequestSend(Request, IoTarget, &Options)) {
-		KdPrint(("Drive: Send failed\n"));
+
+    KdPrint(("Link: %ws\n", MountdevName->Name));
+    WdfRequestComplete(Request, STATUS_SUCCESS);
+}
+
+
+void GhostDeviceControlQueryUniqueId(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context) {
+	WDFMEMORY OutputMemory;
+	USHORT Length;
+	UCHAR UID;
+	NTSTATUS status;
+
+	KdPrint(("QueryUniqueID\n"));
+
+	// Retrieve the output memory
+	status = WdfRequestRetrieveOutputMemory(Request, &OutputMemory);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not retrieve the output memory: 0x%lx\n", status));
+		WdfRequestComplete(Request, status);
+		return;
 	}
+
+	Length = 1;
+	UID = (UCHAR)Context->ID + 0x30;
+
+	// Copy the data to the output buffer
+	status = WdfMemoryCopyFromBuffer(OutputMemory, FIELD_OFFSET(MOUNTDEV_UNIQUE_ID, UniqueIdLength), &Length, sizeof(USHORT));
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not copy the ID's length to the output memory: 0x%lx\n", status));
+		WdfRequestComplete(Request, STATUS_BUFFER_TOO_SMALL);
+		return;
+	}
+
+	status = WdfMemoryCopyFromBuffer(OutputMemory, FIELD_OFFSET(MOUNTDEV_UNIQUE_ID, UniqueId), &UID, sizeof(UCHAR));
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not copy the ID's length to the output memory: 0x%lx\n", status));
+		WdfRequestComplete(Request, STATUS_BUFFER_TOO_SMALL);
+		return;
+	}
+
+	WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, Length + sizeof(USHORT));
+}
+
+
+void GhostDeviceControlQueryDeviceName(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context) {
+	USHORT NameLength;
+	WDFMEMORY OutputMemory;
+	NTSTATUS status;
+
+	KdPrint(("QueryDeviceName\n"));
+
+	// Retrieve the output memory
+	status = WdfRequestRetrieveOutputMemory(Request, &OutputMemory);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not retrieve the output memory: 0x%lx\n", status));
+		WdfRequestComplete(Request, status);
+		return;
+	}
+
+	NameLength = Context->DeviceNameLength - sizeof(WCHAR);
+
+	// Copy the length to the output buffer
+	status = WdfMemoryCopyFromBuffer(OutputMemory, FIELD_OFFSET(MOUNTDEV_NAME, NameLength), &NameLength, sizeof(USHORT));
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not copy the name's length to the output memory: 0x%lx\n", status));
+		WdfRequestComplete(Request, STATUS_BUFFER_TOO_SMALL);
+		return;
+	}
+
+	// Copy the data to the output buffer
+	status = WdfMemoryCopyFromBuffer(OutputMemory, FIELD_OFFSET(MOUNTDEV_NAME, Name), Context->DeviceName, Context->DeviceNameLength);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not copy the name to the output memory: 0x%lx\n", status));
+		WdfRequestCompleteWithInformation(Request, STATUS_BUFFER_OVERFLOW, sizeof(MOUNTDEV_NAME));
+		return;
+	}
+
+	WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, Context->DeviceNameLength);
 }
 
 
@@ -118,7 +244,7 @@ NTSTATUS GhostDriveDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 {
 	NTSTATUS status;
 	WDFDEVICE Device;
-	WDF_OBJECT_ATTRIBUTES QueueAttr;
+	WDF_OBJECT_ATTRIBUTES DeviceAttr, QueueAttr;
 	WCHAR devname[] = DRIVE_DEVICE_NAME;
 	WCHAR linkname[] = DRIVE_LINK_NAME;
 	DECLARE_CONST_UNICODE_STRING(DeviceSDDL, DEVICE_SDDL_STRING);
@@ -126,8 +252,13 @@ NTSTATUS GhostDriveDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 	UNICODE_STRING LinkName;
 	WDF_IO_QUEUE_CONFIG QueueConfig;
 	ULONG ID, Length;
+	PGHOST_DRIVE_CONTEXT Context;
 
 	KdPrint(("DeviceAdd called\n"));
+	
+	// Define the context for the new device
+	WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&DeviceAttr, GHOST_DRIVE_CONTEXT);
+	DeviceAttr.ExecutionLevel = WdfExecutionLevelPassive;
 
 	// Create the device's name based on its ID
 	status = WdfFdoInitQueryProperty(DeviceInit, DevicePropertyUINumber, sizeof(ULONG), &ID, &Length);
@@ -157,11 +288,16 @@ NTSTATUS GhostDriveDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 	}
 
 	// Create the device
-	status = WdfDeviceCreate(&DeviceInit, WDF_NO_OBJECT_ATTRIBUTES, &Device);
+	status = WdfDeviceCreate(&DeviceInit, &DeviceAttr, &Device);
 	if (!NT_SUCCESS(status)) {
 		KdPrint(("GhostDrive: Could not create a device: 0x%lx", status));
 		return status;
 	}
+	
+	// Copy the name to the device extension
+	Context = GhostDriveGetContext(Device);
+	RtlCopyMemory(Context->DeviceName, DeviceName.Buffer, DeviceName.Length + sizeof(WCHAR));
+	Context->DeviceNameLength = DeviceName.Length + sizeof(WCHAR);
 
 	// Set up the device's I/O queue to handle I/O requests
 	WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&QueueConfig, WdfIoQueueDispatchSequential);

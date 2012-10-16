@@ -248,16 +248,7 @@ NTSTATUS GhostDriveInitImage(WDFDEVICE Device, ULONG ID) {
 	
 	/* Use the fixed image file name */
 	RtlInitUnicodeString(&FileToMount, imagename);
-#endif	
-	
-	/* Set the correct ID in the file name */
-	/*for (i = 0; i < FileToMount.Length; i++) {
-		if (FileToMount.Buffer[i] == L'0') {
-			KdPrint(("Inserting ID into device name\n"));
-			FileToMount.Buffer[i] = (WCHAR)(ID + 0x30);
-			break;
-		}
-	}*/
+#endif
 	
 	FileSize.QuadPart = 100 * 1024 * 1024;
 	KdPrint(("Image file name: %wZ\n", &FileToMount));
@@ -594,14 +585,12 @@ NTSTATUS GhostBusChildListCreateDevice(WDFCHILDLIST ChildList,
 	}
 	// end tmp
 	
-	/*
 	// Mount the image
 	status = GhostDriveInitImage(ChildDevice, ID);
 	if (!NT_SUCCESS(status)) {
 		KdPrint(("Mount failed\n"));
 		return status;
 	}
-	*/
 
 	return STATUS_SUCCESS;
 }
