@@ -40,18 +40,18 @@
 /*
  * Internal functions
  */
-void GhostDeviceControlGetHotplugInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
-void GhostDeviceControlGetDeviceNumber(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
-void GhostDeviceControlQueryProperty(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
-void GhostDeviceControlGetPartitionInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
-void GhostDeviceControlGetPartitionInfoEx(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
-void GhostDeviceControlCheckVerify(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context, size_t OutputBufferLength);
-void GhostDeviceControlGetDriveGeometry(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
-void GhostDeviceControlGetLengthInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
+void GhostDeviceControlGetHotplugInfo(WDFREQUEST Request, PGHOST_DRIVE_PDO_CONTEXT Context);
+void GhostDeviceControlGetDeviceNumber(WDFREQUEST Request, PGHOST_DRIVE_PDO_CONTEXT Context);
+void GhostDeviceControlQueryProperty(WDFREQUEST Request, PGHOST_DRIVE_PDO_CONTEXT Context);
+void GhostDeviceControlGetPartitionInfo(WDFREQUEST Request, PGHOST_DRIVE_PDO_CONTEXT Context);
+void GhostDeviceControlGetPartitionInfoEx(WDFREQUEST Request, PGHOST_DRIVE_PDO_CONTEXT Context);
+void GhostDeviceControlCheckVerify(WDFREQUEST Request, PGHOST_DRIVE_PDO_CONTEXT Context, size_t OutputBufferLength);
+void GhostDeviceControlGetDriveGeometry(WDFREQUEST Request, PGHOST_DRIVE_PDO_CONTEXT Context);
+void GhostDeviceControlGetLengthInfo(WDFREQUEST Request, PGHOST_DRIVE_PDO_CONTEXT Context);
 void GhostDeviceControlMountImage(WDFREQUEST Request, WDFDEVICE Device);
-void GhostDeviceControlUmountImage(WDFREQUEST Request, WDFDEVICE Device, PGHOST_DRIVE_CONTEXT Context);
-void GhostDeviceControlHandleWriterInfoRequest(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
-void GhostDeviceControlGetWriterInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context);
+void GhostDeviceControlUmountImage(WDFREQUEST Request, WDFDEVICE Device, PGHOST_DRIVE_PDO_CONTEXT Context);
+void GhostDeviceControlHandleWriterInfoRequest(WDFREQUEST Request, PGHOST_DRIVE_PDO_CONTEXT Context);
+void GhostDeviceControlGetWriterInfo(WDFREQUEST Request, PGHOST_DRIVE_PDO_CONTEXT Context);
 
 
 /*
@@ -62,7 +62,7 @@ VOID GhostDeviceControlDispatch(WDFQUEUE Queue, WDFREQUEST Request, size_t Outpu
 			size_t InputBufferLength, ULONG IoControlCode)
 {
 	WDFDEVICE Device = WdfIoQueueGetDevice(Queue);
-	PGHOST_DRIVE_CONTEXT Context = GhostDriveGetContext(Device);
+	PGHOST_DRIVE_PDO_CONTEXT Context = GhostDrivePdoGetContext(Device);
 
 	switch (IoControlCode) {
 		case IOCTL_STORAGE_GET_HOTPLUG_INFO:
@@ -160,7 +160,7 @@ VOID GhostDeviceControlDispatch(WDFQUEUE Queue, WDFREQUEST Request, size_t Outpu
 }
 
 
-void GhostDeviceControlGetHotplugInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context) {
+void GhostDeviceControlGetHotplugInfo(WDFREQUEST Request, PGHOST_DRIVE_PDO_CONTEXT Context) {
 	STORAGE_HOTPLUG_INFO HotplugInfo;
 	WDFMEMORY OutputMemory;
 	NTSTATUS status;
@@ -200,7 +200,7 @@ void GhostDeviceControlGetHotplugInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT C
 }
 
 
-void GhostDeviceControlGetPartitionInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context) {
+void GhostDeviceControlGetPartitionInfo(WDFREQUEST Request, PGHOST_DRIVE_PDO_CONTEXT Context) {
 	PARTITION_INFORMATION PartitionInfo;
 	WDFMEMORY OutputMemory;
 	NTSTATUS status;
@@ -236,7 +236,7 @@ void GhostDeviceControlGetPartitionInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT
 }
 
 
-void GhostDeviceControlGetPartitionInfoEx(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context) {
+void GhostDeviceControlGetPartitionInfoEx(WDFREQUEST Request, PGHOST_DRIVE_PDO_CONTEXT Context) {
 	PARTITION_INFORMATION_EX PartitionInfoEx;
 	WDFMEMORY OutputMemory;
 	NTSTATUS status;
@@ -273,7 +273,7 @@ void GhostDeviceControlGetPartitionInfoEx(WDFREQUEST Request, PGHOST_DRIVE_CONTE
 }
 
 
-void GhostDeviceControlCheckVerify(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context, size_t OutputBufferLength) {
+void GhostDeviceControlCheckVerify(WDFREQUEST Request, PGHOST_DRIVE_PDO_CONTEXT Context, size_t OutputBufferLength) {
 	WDFMEMORY OutputMemory;
 	NTSTATUS status;
 	ULONG_PTR info;
@@ -306,7 +306,7 @@ void GhostDeviceControlCheckVerify(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Cont
 }
 
 
-void GhostDeviceControlGetDriveGeometry(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context) {
+void GhostDeviceControlGetDriveGeometry(WDFREQUEST Request, PGHOST_DRIVE_PDO_CONTEXT Context) {
 	DISK_GEOMETRY Geometry;
 	WDFMEMORY OutputMemory;
 	NTSTATUS status;
@@ -343,7 +343,7 @@ void GhostDeviceControlGetDriveGeometry(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT
 }
 
 
-void GhostDeviceControlGetLengthInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context) {
+void GhostDeviceControlGetLengthInfo(WDFREQUEST Request, PGHOST_DRIVE_PDO_CONTEXT Context) {
 	GET_LENGTH_INFORMATION LengthInfo;
 	WDFMEMORY OutputMemory;
 	NTSTATUS status;
@@ -372,7 +372,7 @@ void GhostDeviceControlGetLengthInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Co
 }
 
 
-void GhostDeviceControlQueryProperty(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context) {
+void GhostDeviceControlQueryProperty(WDFREQUEST Request, PGHOST_DRIVE_PDO_CONTEXT Context) {
 	STORAGE_PROPERTY_QUERY Query;
 	STORAGE_DEVICE_DESCRIPTOR DeviceDescriptor;
 	WDFMEMORY InputMemory;
@@ -461,7 +461,7 @@ void GhostDeviceControlQueryProperty(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Co
 }
 
 
-void GhostDeviceControlGetDeviceNumber(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context) {
+void GhostDeviceControlGetDeviceNumber(WDFREQUEST Request, PGHOST_DRIVE_PDO_CONTEXT Context) {
 	STORAGE_DEVICE_NUMBER DeviceNumber;
 	WDFMEMORY OutputMemory;
 	NTSTATUS status;
@@ -497,25 +497,12 @@ void GhostDeviceControlMountImage(WDFREQUEST Request, WDFDEVICE Device) {
 	UNICODE_STRING ImageName;
 	NTSTATUS status;
 
-	KdPrint(("Mount\n"));
-
-	// Get information on the file to be mounted
-	status = WdfRequestRetrieveInputBuffer(Request, sizeof(GHOST_DRIVE_MOUNT_PARAMETERS), &Parameters, NULL);
-	if (!NT_SUCCESS(status)) {
-		KdPrint(("Not enough information\n"));
-		WdfRequestComplete(Request, STATUS_BUFFER_TOO_SMALL);
-		return;
-	}
-
-	//KdPrint(("%ws\n", Parameters->ImageName));
-
-	RtlInitUnicodeString(&ImageName, Parameters->ImageName);
-	status = GhostFileIoMountImage(Device, &ImageName, &Parameters->RequestedSize);
-	WdfRequestComplete(Request, status);
+	KdPrint(("Bus: The mount control code is no longer supported!\n"));
+	WdfRequestComplete(Request, STATUS_INVALID_DEVICE_REQUEST);
 }
 
 
-void GhostDeviceControlUmountImage(WDFREQUEST Request, WDFDEVICE Device, PGHOST_DRIVE_CONTEXT Context) {
+void GhostDeviceControlUmountImage(WDFREQUEST Request, WDFDEVICE Device, PGHOST_DRIVE_PDO_CONTEXT Context) {
 	PBOOLEAN Written = NULL;
 	ULONG_PTR info = 0;
 	NTSTATUS status;
@@ -540,7 +527,7 @@ void GhostDeviceControlUmountImage(WDFREQUEST Request, WDFDEVICE Device, PGHOST_
 }
 
 
-void GhostDeviceControlHandleWriterInfoRequest(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context) {
+void GhostDeviceControlHandleWriterInfoRequest(WDFREQUEST Request, PGHOST_DRIVE_PDO_CONTEXT Context) {
 	NTSTATUS status;
 	PGHOST_DRIVE_WRITER_INFO_PARAMETERS WriterInfoParams;
 	USHORT Index;
@@ -583,7 +570,7 @@ void GhostDeviceControlHandleWriterInfoRequest(WDFREQUEST Request, PGHOST_DRIVE_
 }
 
 
-void GhostDeviceControlProcessPendingWriterInfoRequests(PGHOST_DRIVE_CONTEXT Context) {
+void GhostDeviceControlProcessPendingWriterInfoRequests(PGHOST_DRIVE_PDO_CONTEXT Context) {
 	WDFREQUEST PreviousRequest, Request, OwnedRequest;
 	WDF_REQUEST_PARAMETERS RequestParams;
 	NTSTATUS status;
@@ -633,7 +620,7 @@ void GhostDeviceControlProcessPendingWriterInfoRequests(PGHOST_DRIVE_CONTEXT Con
 }
 
 	
-void GhostDeviceControlGetWriterInfo(WDFREQUEST Request, PGHOST_DRIVE_CONTEXT Context) {
+void GhostDeviceControlGetWriterInfo(WDFREQUEST Request, PGHOST_DRIVE_PDO_CONTEXT Context) {
 	NTSTATUS status;
 	PGHOST_DRIVE_WRITER_INFO_PARAMETERS WriterInfoParams;
 	USHORT Index, i;

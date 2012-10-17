@@ -36,7 +36,7 @@
 
 
 EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL GhostDeviceControlDispatch;
-void GhostDeviceControlProcessPendingWriterInfoRequests(PGHOST_DRIVE_CONTEXT Context);
+void GhostDeviceControlProcessPendingWriterInfoRequests(PGHOST_DRIVE_PDO_CONTEXT Context);
 
 
 #endif

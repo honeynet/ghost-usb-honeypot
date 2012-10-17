@@ -88,7 +88,7 @@ typedef struct _GHOST_DRIVE_IDENTIFICATION {
  * device. It contains information about the device itself and the
  * image file that may be mounted.
  */
-typedef struct _GHOST_DRIVE_CONTEXT {
+typedef struct _GHOST_DRIVE_PDO_CONTEXT {
 
 	BOOLEAN ImageMounted;
 	BOOLEAN ImageWritten;
@@ -102,9 +102,9 @@ typedef struct _GHOST_DRIVE_CONTEXT {
 	PGHOST_INFO_PROCESS_DATA WriterInfo;   // paged memory
 	WDFQUEUE WriterInfoQueue;
 
-} GHOST_DRIVE_CONTEXT, *PGHOST_DRIVE_CONTEXT;
+} GHOST_DRIVE_PDO_CONTEXT, *PGHOST_DRIVE_PDO_CONTEXT;
 
-WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(GHOST_DRIVE_CONTEXT, GhostDriveGetContext);
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(GHOST_DRIVE_PDO_CONTEXT, GhostDrivePdoGetContext);
 
 
 

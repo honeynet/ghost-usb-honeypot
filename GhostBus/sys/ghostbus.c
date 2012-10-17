@@ -79,11 +79,11 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 VOID GhostDriveDeviceCleanup(WDFOBJECT Object)
 {
 	NTSTATUS status;
-	PGHOST_DRIVE_CONTEXT Context;
+	PGHOST_DRIVE_PDO_CONTEXT Context;
 	PGHOST_INFO_PROCESS_DATA ProcessInfo;
 	int counter;
 
-	Context = GhostDriveGetContext(Object);
+	Context = GhostDrivePdoGetContext(Object);
 	KdPrint(("Image has been written to: %u\n", Context->ImageWritten));
 	if (Context->ImageMounted)
 		GhostFileIoUmountImage(Object);
@@ -185,7 +185,10 @@ VOID GhostBusUnload(WDFDRIVER Driver)
 }
 
 
-NTSTATUS GhostDriveInitImage(WDFDEVICE Device, ULONG ID) {
+/*
+ * This routine initiates an image file for the given drive PDO.
+ */
+NTSTATUS GhostDrivePdoInitImage(WDFDEVICE Device, ULONG ID) {
 	WCHAR imagename[] = IMAGE_NAME;
 	LARGE_INTEGER FileSize;
 	UNICODE_STRING FileToMount, RegValue;
@@ -263,7 +266,7 @@ NTSTATUS GhostDriveInitImage(WDFDEVICE Device, ULONG ID) {
 
 
 /*
- * GhostBusDeviceControl handles I/O request packages with device control codes,
+ * GhostBusDeviceControl handles I/O request packages with device control codes for the bus FDO,
  * that is especially user-defined codes controlling child enumeration.
  *
  * TODO: Move request handling to separate functions.
@@ -356,6 +359,10 @@ VOID GhostBusDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBuff
 		break;
 
 	case IOCTL_GHOST_BUS_DISABLE_DRIVE:
+	{
+		WDFDEVICE ChildPdo;
+		WDF_CHILD_RETRIEVE_INFO ChildInfo;
+		
 		KdPrint(("Disabling GhostDrive\n"));
 
 		// Retrieve the drive's ID from the request's input buffer
@@ -371,6 +378,13 @@ VOID GhostBusDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBuff
 
 		WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER_INIT(&Identification.Header, sizeof(Identification));
 		Identification.Id = *pID;
+		
+		// Obtain the child's PDO to send it an umount command
+		WDF_CHILD_RETRIEVE_INFO_INIT(&ChildInfo, &Identification.Header);
+		ChildPdo = WdfChildListRetrievePdo(ChildList, &ChildInfo);
+		if (ChildPdo == NULL) {
+			KdPrint(("Bus: Couldn't obtain the drive PDO\n"));
+		}
 
 		/*status = WdfChildListUpdateChildDescriptionAsMissing(ChildList, &Identification.Header);
 		if (!NT_SUCCESS(status)) {
@@ -385,6 +399,7 @@ VOID GhostBusDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBuff
 
 		status = STATUS_SUCCESS;
 		break;
+	}
 
 	default:
 
@@ -396,12 +411,12 @@ VOID GhostBusDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBuff
 }
 
 
-NTSTATUS GhostDriveQueryRemove(WDFDEVICE Device) {
-	PGHOST_DRIVE_CONTEXT Context;
+NTSTATUS GhostDrivePdoQueryRemove(WDFDEVICE Device) {
+	PGHOST_DRIVE_PDO_CONTEXT Context;
 	
 	KdPrint(("QueryRemove\n"));
 	
-	Context = GhostDriveGetContext(Device);
+	Context = GhostDrivePdoGetContext(Device);
 	KdPrint(("Draining the writer info queue...\n"));
 	WdfIoQueuePurgeSynchronously(Context->WriterInfoQueue);
 	
@@ -432,15 +447,17 @@ NTSTATUS GhostBusChildListCreateDevice(WDFCHILDLIST ChildList,
 	PGHOST_DRIVE_IDENTIFICATION Identification = (PGHOST_DRIVE_IDENTIFICATION)IdentificationDescription;
 	NTSTATUS status;
 	WDF_OBJECT_ATTRIBUTES DeviceAttr;
-	PGHOST_DRIVE_CONTEXT Context;
+	PGHOST_DRIVE_PDO_CONTEXT Context;
 	ULONG ID;
 	WDF_PNPPOWER_EVENT_CALLBACKS PnpPowerCallbacks;
+	WDF_OBJECT_ATTRIBUTES QueueAttr;
+	WDF_IO_QUEUE_CONFIG QueueConfig;
 
 	KdPrint(("ChildListCreateDevice called\n"));
 	ID = ((PGHOST_DRIVE_IDENTIFICATION) IdentificationDescription)->Id;
 	
 	// Define the context for the new device
-	WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&DeviceAttr, GHOST_DRIVE_CONTEXT);
+	WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&DeviceAttr, GHOST_DRIVE_PDO_CONTEXT);
 	DeviceAttr.EvtCleanupCallback = GhostDriveDeviceCleanup;
 	DeviceAttr.ExecutionLevel = WdfExecutionLevelPassive;
 	
@@ -520,7 +537,7 @@ NTSTATUS GhostBusChildListCreateDevice(WDFCHILDLIST ChildList,
 	
 	// Register callbacks
 	WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&PnpPowerCallbacks);
-	PnpPowerCallbacks.EvtDeviceQueryRemove = GhostDriveQueryRemove;
+	PnpPowerCallbacks.EvtDeviceQueryRemove = GhostDrivePdoQueryRemove;
 	WdfDeviceInitSetPnpPowerEventCallbacks(ChildInit, &PnpPowerCallbacks);
 
 	// Create the device
@@ -546,7 +563,7 @@ NTSTATUS GhostBusChildListCreateDevice(WDFCHILDLIST ChildList,
 	WdfDeviceSetPnpCapabilities(ChildDevice, &PnpCaps);
 	
 	// Initialize the device extension
-	Context = GhostDriveGetContext(ChildDevice);
+	Context = GhostDrivePdoGetContext(ChildDevice);
 	Context->ImageMounted = FALSE;
 	Context->ImageWritten = FALSE;
 	Context->ID = ID;
@@ -554,39 +571,32 @@ NTSTATUS GhostBusChildListCreateDevice(WDFCHILDLIST ChildList,
 	Context->WriterInfoCount = 0;
 	Context->WriterInfo = NULL;
 	
-	// begin tmp
-	{
-		WDF_OBJECT_ATTRIBUTES QueueAttr;
-		WDF_IO_QUEUE_CONFIG QueueConfig;
-		
-		// Set up the device's I/O queue to handle I/O requests
-		WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&QueueConfig, WdfIoQueueDispatchSequential);
-		QueueConfig.EvtIoRead = GhostFileIoRead;
-		QueueConfig.EvtIoWrite = GhostFileIoWrite;
-		QueueConfig.EvtIoDeviceControl = GhostDeviceControlDispatch;
-	
-		WDF_OBJECT_ATTRIBUTES_INIT(&QueueAttr);
-		QueueAttr.ExecutionLevel = WdfExecutionLevelPassive;	// necessary to collect writer information
+	// Set up the device's I/O queue to handle I/O requests
+	WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&QueueConfig, WdfIoQueueDispatchSequential);
+	QueueConfig.EvtIoRead = GhostFileIoRead;
+	QueueConfig.EvtIoWrite = GhostFileIoWrite;
+	QueueConfig.EvtIoDeviceControl = GhostDeviceControlDispatch;
 
-		status = WdfIoQueueCreate(ChildDevice, &QueueConfig, &QueueAttr, NULL);
-		if (!NT_SUCCESS(status)) {
-			KdPrint(("Could not create the default I/O queue\n"));
-			return status;
-		}
-		
-		// Create a separate queue for blocking writer info requests
-		WDF_IO_QUEUE_CONFIG_INIT(&QueueConfig, WdfIoQueueDispatchManual);
+	WDF_OBJECT_ATTRIBUTES_INIT(&QueueAttr);
+	QueueAttr.ExecutionLevel = WdfExecutionLevelPassive;	// necessary to collect writer information
 
-		status = WdfIoQueueCreate(ChildDevice, &QueueConfig, &QueueAttr, &Context->WriterInfoQueue);
-		if (!NT_SUCCESS(status)) {
-			KdPrint(("Could not create the I/O queue for writer info requests\n"));
-			return status;
-		}
+	status = WdfIoQueueCreate(ChildDevice, &QueueConfig, &QueueAttr, NULL);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not create the default I/O queue\n"));
+		return status;
 	}
-	// end tmp
+	
+	// Create a separate queue for blocking writer info requests
+	WDF_IO_QUEUE_CONFIG_INIT(&QueueConfig, WdfIoQueueDispatchManual);
+
+	status = WdfIoQueueCreate(ChildDevice, &QueueConfig, &QueueAttr, &Context->WriterInfoQueue);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not create the I/O queue for writer info requests\n"));
+		return status;
+	}
 	
 	// Mount the image
-	status = GhostDriveInitImage(ChildDevice, ID);
+	status = GhostDrivePdoInitImage(ChildDevice, ID);
 	if (!NT_SUCCESS(status)) {
 		KdPrint(("Mount failed\n"));
 		return status;
