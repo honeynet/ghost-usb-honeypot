@@ -76,7 +76,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
  * to unmount the image file in order to ensure that all data is written to disk
  * successfully before the file handle is discarded.
  */
-VOID GhostDriveDeviceCleanup(WDFOBJECT Object)
+VOID GhostDrivePdoDeviceCleanup(WDFOBJECT Object)
 {
 	NTSTATUS status;
 	PGHOST_DRIVE_PDO_CONTEXT Context;
@@ -400,6 +400,91 @@ VOID GhostBusDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBuff
 		status = STATUS_SUCCESS;
 		break;
 	}
+	
+	case IOCTL_GHOST_DRIVE_GET_WRITER_INFO:
+	{
+		WDFDEVICE ChildPdo, BusDevice;
+		WDF_CHILD_RETRIEVE_INFO ChildInfo;
+		PGHOST_DRIVE_WRITER_INFO_PARAMETERS Params;
+		WDFIOTARGET ChildIoTarget;
+		WDF_IO_TARGET_OPEN_PARAMS OpenParams;
+		WDFMEMORY InputMem, OutputMem;
+		WDF_REQUEST_SEND_OPTIONS SendOptions;
+		WDF_MEMORY_DESCRIPTOR InMemDesc, OutMemDesc;
+		
+		/*
+		 * This is actually a request for information from one of our child devices.
+		 * We'll find the corresponding drive PDO and forward the request. Sending the
+		 * IRP to the bus rather than the drive has the advantage that the drive doesn't
+		 * have to be visible to user-mode applications.
+		 */
+		KdPrint(("Bus: writer info request\n"));
+		
+		status = WdfRequestRetrieveInputBuffer(Request, sizeof(GHOST_DRIVE_WRITER_INFO_PARAMETERS), &Params, NULL);
+		if (!NT_SUCCESS(status)) {
+			KdPrint(("Could not retrieve parameters\n"));
+			status = STATUS_INVALID_PARAMETER;
+			break;
+		}
+		
+		BusDevice = WdfIoQueueGetDevice(Queue);
+		ChildList = WdfFdoGetDefaultChildList(BusDevice);
+		WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER_INIT(&Identification.Header, sizeof(Identification));
+		Identification.Id = Params->DeviceID;
+		WDF_CHILD_RETRIEVE_INFO_INIT(&ChildInfo, &Identification.Header);
+		ChildPdo = WdfChildListRetrievePdo(ChildList, &ChildInfo);
+		if (ChildPdo == NULL) {
+			KdPrint(("Bus: couldn't obtain the drive PDO\n"));
+		}
+		
+		status = WdfIoTargetCreate(BusDevice, WDF_NO_OBJECT_ATTRIBUTES, &ChildIoTarget);
+		if (!NT_SUCCESS(status)) {
+			KdPrint(("Bus: couldn't create the I/O target: %lx\n", status));
+			break;
+		}
+		
+		WDF_IO_TARGET_OPEN_PARAMS_INIT_EXISTING_DEVICE(&OpenParams, WdfDeviceWdmGetDeviceObject(ChildPdo));
+		status = WdfIoTargetOpen(ChildIoTarget, &OpenParams);
+		if (!NT_SUCCESS(status)) {
+			KdPrint(("Bus: couldn't open the I/O target: %lx\n", status));
+			break;
+		}
+		
+		WdfRequestRetrieveInputMemory(Request, &InputMem);
+		if (!NT_SUCCESS(status)) {
+			KdPrint(("Bus: couldn't obtain the input memory: %lx\n", status));
+			break;
+		}
+		WDF_MEMORY_DESCRIPTOR_INIT_HANDLE(&InMemDesc, InputMem, NULL);
+		
+		WdfRequestRetrieveOutputMemory(Request, &OutputMem);
+		if (!NT_SUCCESS(status)) {
+			KdPrint(("Bus: couldn't obtain the output memory: %lx\n", status));
+			break;
+		}
+		WDF_MEMORY_DESCRIPTOR_INIT_HANDLE(&OutMemDesc, OutputMem, NULL);
+		
+		WDF_REQUEST_SEND_OPTIONS_INIT(&SendOptions, WDF_REQUEST_SEND_OPTION_SEND_AND_FORGET);
+		
+		/*
+		status = WdfIoTargetFormatRequestForIoctl(ChildIoTarget, Request, IOCTL_GHOST_DRIVE_GET_WRITER_INFO, InputMem, NULL, OutputMem, NULL);
+		if (!NT_SUCCESS(status)) {
+			KdPrint(("Bus: couldn't format the request: %lx\n", status));
+			break;
+		}
+		
+		status = WdfRequestSend(Request, ChildIoTarget, &SendOptions);
+		if (!NT_SUCCESS(status)) {
+			KdPrint(("Bus: couldn't send the request: %lx\n", status));
+			break;
+		}
+		*/
+		
+		status = WdfIoTargetSendIoctlSynchronously(ChildIoTarget, Request, IOCTL_GHOST_DRIVE_GET_WRITER_INFO, &InMemDesc, &OutMemDesc, NULL, &info);
+		KdPrint(("Bus: request status: %lx", status));
+		
+		break;
+	}
 
 	default:
 
@@ -458,7 +543,7 @@ NTSTATUS GhostBusChildListCreateDevice(WDFCHILDLIST ChildList,
 	
 	// Define the context for the new device
 	WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&DeviceAttr, GHOST_DRIVE_PDO_CONTEXT);
-	DeviceAttr.EvtCleanupCallback = GhostDriveDeviceCleanup;
+	DeviceAttr.EvtCleanupCallback = GhostDrivePdoDeviceCleanup;
 	DeviceAttr.ExecutionLevel = WdfExecutionLevelPassive;
 	
 	/*

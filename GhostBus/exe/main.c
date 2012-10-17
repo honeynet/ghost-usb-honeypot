@@ -64,6 +64,8 @@ PGHOST_DRIVE_WRITER_INFO_RESPONSE GetWriterInfo(HANDLE Device, USHORT Index, BOO
 	DWORD BytesReturned;
 	PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
 	
+	// tmp
+	WriterInfoParams.DeviceID = 0;
 	WriterInfoParams.Block = Block;
 	WriterInfoParams.Index = Index;
 	
@@ -194,7 +196,7 @@ void umount_image(int ID) {
 
 
 
-	printf("Opening GhostDrive...\n");
+	/*printf("Opening GhostDrive...\n");
 
 	hDevice = CreateFile(dosdevice,
 		0,
@@ -203,8 +205,23 @@ void umount_image(int ID) {
 		OPEN_EXISTING,
 		FILE_ATTRIBUTE_NORMAL,
 		NULL);
+		
+	printf("Opening bus device...\n");*/
 
-	if (hDevice != INVALID_HANDLE_VALUE) {
+	hDevice = CreateFile("\\\\.\\GhostBus",
+		0,
+		FILE_SHARE_READ | FILE_SHARE_WRITE,
+		NULL,
+		OPEN_EXISTING,
+		FILE_ATTRIBUTE_NORMAL,
+		NULL);
+
+	if (hDevice == INVALID_HANDLE_VALUE) {
+		printf("Error: Could not open bus device\n");
+		return;
+	}
+
+	/*if (hDevice != INVALID_HANDLE_VALUE) {
 		printf("Querying write state...\n");
 
 		result = DeviceIoControl(hDevice,
@@ -224,7 +241,7 @@ void umount_image(int ID) {
 
 		if (BytesReturned > 0) {
 			if (Written == TRUE) {
-				printf("Image has been written to!\n");
+				printf("Image has been written to!\n");*/
 				printf("Querying writer info...\n");
 				
 				for (i = 0; i < MAX_NUM_WRITER_INFO; i++) {
@@ -237,7 +254,7 @@ void umount_image(int ID) {
 						break;
 					}
 				}
-			}
+			/*}
 			else {
 				printf("No data has been written to the image\n");
 			}
@@ -252,23 +269,7 @@ void umount_image(int ID) {
 	else {
 		printf("Error: Could not open %s\n", dosdevice);
 		return;
-	}
-
-
-	printf("Opening bus device...\n");
-
-	hDevice = CreateFile("\\\\.\\GhostBus",
-		0,
-		FILE_SHARE_READ | FILE_SHARE_WRITE,
-		NULL,
-		OPEN_EXISTING,
-		FILE_ATTRIBUTE_NORMAL,
-		NULL);
-
-	if (hDevice == INVALID_HANDLE_VALUE) {
-		printf("Error: Could not open bus device\n");
-		return;
-	}
+	}*/
 
 	printf("Deactivating GhostDrive...\n");
 

@@ -79,6 +79,7 @@ typedef struct _GHOST_DRIVE_MOUNT_PARAMETERS {
  */ 
 typedef struct _GHOST_DRIVE_WRITER_INFO_PARAMETERS {
 	
+	ULONG DeviceID;
 	BOOLEAN Block;
 	USHORT Index;
 	
@@ -89,10 +90,12 @@ typedef struct _GHOST_DRIVE_WRITER_INFO_PARAMETERS {
  * This struct is returned by the writer info request, if the buffer is large enough.
  */
 typedef struct _GHOST_DRIVE_WRITER_INFO_RESPONSE {
+	
 	HANDLE ProcessId;
 	HANDLE ThreadId;
 	USHORT ModuleNamesCount;
 	SIZE_T ModuleNameOffsets[1];
+	
 } GHOST_DRIVE_WRITER_INFO_RESPONSE, *PGHOST_DRIVE_WRITER_INFO_RESPONSE;
 
 
