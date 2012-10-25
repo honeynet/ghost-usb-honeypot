@@ -136,7 +136,7 @@ NTSTATUS GhostBusDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 
 	// Set device properties
 	//WdfDeviceInitSetDeviceType(DeviceInit, FILE_DEVICE_BUS_EXTENDER);
-	WdfDeviceInitSetExclusive(DeviceInit, TRUE);
+	//WdfDeviceInitSetExclusive(DeviceInit, TRUE);
 	WdfDeviceInitSetIoType(DeviceInit, WdfDeviceIoBuffered);
 
 	// Initialize the device's child list
@@ -158,7 +158,7 @@ NTSTATUS GhostBusDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 	}
 
 	// Set up the device's I/O queue to handle I/O requests
-	WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&QueueConfig, WdfIoQueueDispatchSequential);
+	WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&QueueConfig, WdfIoQueueDispatchParallel);
 	QueueConfig.EvtIoDeviceControl = GhostBusDeviceControl;
 	status = WdfIoQueueCreate(Device, &QueueConfig, WDF_NO_OBJECT_ATTRIBUTES, NULL);
 	if (!NT_SUCCESS(status)) {

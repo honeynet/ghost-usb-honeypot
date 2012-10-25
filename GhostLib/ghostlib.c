@@ -83,7 +83,7 @@ BOOL WINAPI DllMain(HINSTANCE hinstDll, DWORD fdwReason, LPVOID lpvReserved) {
 
 DWORD WINAPI InfoThread(LPVOID Parameter) {
 	PGHOST_DEVICE GhostDevice;
-	char dosdevice[] = "\\\\.\\GhostDrive0";
+	char dosdevice[] = "\\\\.\\GhostBus";
 	HANDLE hDevice;
 	PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
 	USHORT i = 0;
@@ -102,7 +102,6 @@ DWORD WINAPI InfoThread(LPVOID Parameter) {
 	}
 	
 	GhostDevice = (PGHOST_DEVICE) Parameter;
-	dosdevice[14] = GhostDevice->DeviceID + 0x30;
 	
 	Events[0] = GhostDevice->StopEvent;
 	Events[1] = Overlapped.hEvent;
@@ -129,6 +128,7 @@ DWORD WINAPI InfoThread(LPVOID Parameter) {
 		
 		WriterInfoParams.Block = TRUE;
 		WriterInfoParams.Index = i;
+		WriterInfoParams.DeviceID = GhostDevice->DeviceID;
 
 		DeviceIoControl(hDevice,
 			IOCTL_GHOST_DRIVE_GET_WRITER_INFO,
