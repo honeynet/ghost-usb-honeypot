@@ -314,6 +314,10 @@ NTSTATUS GhostDriveDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 		return status;
 	}
 
+	/*
+	 * All communication is forwarded from the bus driver, so we don't need to be
+	 * visible to user-space applications.
+	 *
 	// Create symbolic link for volume
 	linkname[22] = (WCHAR)(ID + 0x30);
 	RtlInitUnicodeString(&LinkName, linkname);
@@ -323,6 +327,7 @@ NTSTATUS GhostDriveDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 		KdPrint(("Could not create symbolic link\n"));
 		return status;
 	}
+	*/
 
 	WdfDeviceSetCharacteristics(Device, FILE_REMOVABLE_MEDIA | FILE_DEVICE_SECURE_OPEN);
 

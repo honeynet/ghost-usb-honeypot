@@ -107,5 +107,17 @@ typedef struct _GHOST_DRIVE_PDO_CONTEXT {
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(GHOST_DRIVE_PDO_CONTEXT, GhostDrivePdoGetContext);
 
 
+/*
+ * This struct stores context information for the bus device.
+ */
+typedef struct _GHOST_BUS_CONTEXT {
+	
+	WDFIOTARGET ChildIoTargets[GHOST_DRIVE_MAX_NUM];
+	
+} GHOST_BUS_CONTEXT, *PGHOST_BUS_CONTEXT;
+
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(GHOST_BUS_CONTEXT, GhostBusGetContext);
+
+
 
 #endif

@@ -118,11 +118,13 @@ NTSTATUS GhostBusDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 	WDF_CHILD_LIST_CONFIG ChildListConfig;
 	PNP_BUS_INFORMATION BusInfo;
 	WDF_OBJECT_ATTRIBUTES DeviceAttr;
+	PGHOST_BUS_CONTEXT Context;
+	int i;
 
 	KdPrint(("DeviceAdd called\n"));
 
 	// Set the maximum execution level
-	WDF_OBJECT_ATTRIBUTES_INIT(&DeviceAttr);
+	WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&DeviceAttr, GHOST_BUS_CONTEXT);
 	DeviceAttr.ExecutionLevel = WdfExecutionLevelPassive;
 
 	// Name the new device
@@ -147,6 +149,12 @@ NTSTATUS GhostBusDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 	if (!NT_SUCCESS(status)) {
 		KdPrint(("Could not create a device\n"));
 		return status;
+	}
+	
+	// Initialize the context
+	Context = GhostBusGetContext(Device);
+	for (i = 0; i < GHOST_DRIVE_MAX_NUM; i++) {
+		Context->ChildIoTargets[i] = NULL;
 	}
 
 	// Set up the device's I/O queue to handle I/O requests
@@ -261,6 +269,82 @@ NTSTATUS GhostDrivePdoInitImage(WDFDEVICE Device, ULONG ID) {
 	ExFreePoolWithTag(FileToMount.Buffer, TAG);
 #endif
 	
+	return status;
+}
+
+
+NTSTATUS GhostBusForwardToChild(WDFDEVICE BusDevice, ULONG ChildID, WDFREQUEST Request, ULONG IoControlCode, PULONG_PTR info) {
+	GHOST_DRIVE_IDENTIFICATION Identification;
+	WDFCHILDLIST ChildList;
+	NTSTATUS status = STATUS_UNSUCCESSFUL;
+	WDFIOTARGET ChildIoTarget;
+	WDF_IO_TARGET_OPEN_PARAMS OpenParams;
+	WDFMEMORY InputMem, OutputMem;
+	WDF_REQUEST_SEND_OPTIONS SendOptions;
+	WDF_MEMORY_DESCRIPTOR InMemDesc, OutMemDesc;
+	WDFDEVICE ChildPdo;
+	WDF_CHILD_RETRIEVE_INFO ChildInfo;
+	
+	ChildList = WdfFdoGetDefaultChildList(BusDevice);
+	WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER_INIT(&Identification.Header, sizeof(Identification));
+	Identification.Id = ChildID;
+	WDF_CHILD_RETRIEVE_INFO_INIT(&ChildInfo, &Identification.Header);
+	ChildPdo = WdfChildListRetrievePdo(ChildList, &ChildInfo);
+	if (ChildPdo == NULL) {
+		KdPrint(("Bus: couldn't obtain the drive PDO\n"));
+		return status;
+	}
+
+	// Create an I/O target for the bus
+	// TODO: Cache the I/O targets (problem: where to delete?)
+	status = WdfIoTargetCreate(BusDevice, WDF_NO_OBJECT_ATTRIBUTES, &ChildIoTarget);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Bus: couldn't create the I/O target: %lx\n", status));
+		return status;
+	}
+
+	WDF_IO_TARGET_OPEN_PARAMS_INIT_EXISTING_DEVICE(&OpenParams, WdfDeviceWdmGetDeviceObject(ChildPdo));
+	status = WdfIoTargetOpen(ChildIoTarget, &OpenParams);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Bus: couldn't open the I/O target: %lx\n", status));
+		return status;
+	}
+	
+	WdfRequestRetrieveInputMemory(Request, &InputMem);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Bus: couldn't obtain the input memory: %lx\n", status));
+		return status;
+	}
+	WDF_MEMORY_DESCRIPTOR_INIT_HANDLE(&InMemDesc, InputMem, NULL);
+	
+	WdfRequestRetrieveOutputMemory(Request, &OutputMem);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Bus: couldn't obtain the output memory: %lx\n", status));
+		return status;
+	}
+	WDF_MEMORY_DESCRIPTOR_INIT_HANDLE(&OutMemDesc, OutputMem, NULL);
+	
+	WDF_REQUEST_SEND_OPTIONS_INIT(&SendOptions, WDF_REQUEST_SEND_OPTION_SEND_AND_FORGET);
+	
+	/*
+	status = WdfIoTargetFormatRequestForIoctl(ChildIoTarget, Request, IOCTL_GHOST_DRIVE_GET_WRITER_INFO, InputMem, NULL, OutputMem, NULL);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Bus: couldn't format the request: %lx\n", status));
+		break;
+	}
+	
+	status = WdfRequestSend(Request, ChildIoTarget, &SendOptions);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Bus: couldn't send the request: %lx\n", status));
+		break;
+	}
+	*/
+	
+	status = WdfIoTargetSendIoctlSynchronously(ChildIoTarget, Request, IOCTL_GHOST_DRIVE_GET_WRITER_INFO, &InMemDesc, &OutMemDesc, NULL, info);
+	KdPrint(("Bus: request status: %lx", status));
+	
+	WdfIoTargetClose(ChildIoTarget);
+	WdfObjectDelete(ChildIoTarget);
 	return status;
 }
 
@@ -403,14 +487,7 @@ VOID GhostBusDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBuff
 	
 	case IOCTL_GHOST_DRIVE_GET_WRITER_INFO:
 	{
-		WDFDEVICE ChildPdo, BusDevice;
-		WDF_CHILD_RETRIEVE_INFO ChildInfo;
 		PGHOST_DRIVE_WRITER_INFO_PARAMETERS Params;
-		WDFIOTARGET ChildIoTarget;
-		WDF_IO_TARGET_OPEN_PARAMS OpenParams;
-		WDFMEMORY InputMem, OutputMem;
-		WDF_REQUEST_SEND_OPTIONS SendOptions;
-		WDF_MEMORY_DESCRIPTOR InMemDesc, OutMemDesc;
 		
 		/*
 		 * This is actually a request for information from one of our child devices.
@@ -427,62 +504,7 @@ VOID GhostBusDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBuff
 			break;
 		}
 		
-		BusDevice = WdfIoQueueGetDevice(Queue);
-		ChildList = WdfFdoGetDefaultChildList(BusDevice);
-		WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER_INIT(&Identification.Header, sizeof(Identification));
-		Identification.Id = Params->DeviceID;
-		WDF_CHILD_RETRIEVE_INFO_INIT(&ChildInfo, &Identification.Header);
-		ChildPdo = WdfChildListRetrievePdo(ChildList, &ChildInfo);
-		if (ChildPdo == NULL) {
-			KdPrint(("Bus: couldn't obtain the drive PDO\n"));
-		}
-		
-		status = WdfIoTargetCreate(BusDevice, WDF_NO_OBJECT_ATTRIBUTES, &ChildIoTarget);
-		if (!NT_SUCCESS(status)) {
-			KdPrint(("Bus: couldn't create the I/O target: %lx\n", status));
-			break;
-		}
-		
-		WDF_IO_TARGET_OPEN_PARAMS_INIT_EXISTING_DEVICE(&OpenParams, WdfDeviceWdmGetDeviceObject(ChildPdo));
-		status = WdfIoTargetOpen(ChildIoTarget, &OpenParams);
-		if (!NT_SUCCESS(status)) {
-			KdPrint(("Bus: couldn't open the I/O target: %lx\n", status));
-			break;
-		}
-		
-		WdfRequestRetrieveInputMemory(Request, &InputMem);
-		if (!NT_SUCCESS(status)) {
-			KdPrint(("Bus: couldn't obtain the input memory: %lx\n", status));
-			break;
-		}
-		WDF_MEMORY_DESCRIPTOR_INIT_HANDLE(&InMemDesc, InputMem, NULL);
-		
-		WdfRequestRetrieveOutputMemory(Request, &OutputMem);
-		if (!NT_SUCCESS(status)) {
-			KdPrint(("Bus: couldn't obtain the output memory: %lx\n", status));
-			break;
-		}
-		WDF_MEMORY_DESCRIPTOR_INIT_HANDLE(&OutMemDesc, OutputMem, NULL);
-		
-		WDF_REQUEST_SEND_OPTIONS_INIT(&SendOptions, WDF_REQUEST_SEND_OPTION_SEND_AND_FORGET);
-		
-		/*
-		status = WdfIoTargetFormatRequestForIoctl(ChildIoTarget, Request, IOCTL_GHOST_DRIVE_GET_WRITER_INFO, InputMem, NULL, OutputMem, NULL);
-		if (!NT_SUCCESS(status)) {
-			KdPrint(("Bus: couldn't format the request: %lx\n", status));
-			break;
-		}
-		
-		status = WdfRequestSend(Request, ChildIoTarget, &SendOptions);
-		if (!NT_SUCCESS(status)) {
-			KdPrint(("Bus: couldn't send the request: %lx\n", status));
-			break;
-		}
-		*/
-		
-		status = WdfIoTargetSendIoctlSynchronously(ChildIoTarget, Request, IOCTL_GHOST_DRIVE_GET_WRITER_INFO, &InMemDesc, &OutMemDesc, NULL, &info);
-		KdPrint(("Bus: request status: %lx", status));
-		
+		status = GhostBusForwardToChild(WdfIoQueueGetDevice(Queue), Params->DeviceID, Request, IOCTL_GHOST_DRIVE_GET_WRITER_INFO, &info);
 		break;
 	}
 
