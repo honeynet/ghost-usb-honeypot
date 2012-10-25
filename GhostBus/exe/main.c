@@ -57,15 +57,14 @@ void PrintWriterInfo(PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo) {
 }
 
 
-PGHOST_DRIVE_WRITER_INFO_RESPONSE GetWriterInfo(HANDLE Device, USHORT Index, BOOLEAN Block) {
+PGHOST_DRIVE_WRITER_INFO_RESPONSE GetWriterInfo(HANDLE Device, USHORT Index, BOOLEAN Block, ULONG DeviceID) {
 	GHOST_DRIVE_WRITER_INFO_PARAMETERS WriterInfoParams;
 	BOOL result;
 	SIZE_T RequiredSize;
 	DWORD BytesReturned;
 	PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
 	
-	// tmp
-	WriterInfoParams.DeviceID = 0;
+	WriterInfoParams.DeviceID = DeviceID;
 	WriterInfoParams.Block = Block;
 	WriterInfoParams.Index = Index;
 	
@@ -185,28 +184,12 @@ void umount_image(int ID) {
 	HANDLE hDevice;
 	DWORD BytesReturned;
 	BOOL result;
-	LONG lID;
-	char dosdevice[] = "\\\\.\\GhostDrive0";
+	ULONG lID = ID;
 	BOOLEAN Written = FALSE;
 	PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
 	USHORT i;
-
-	dosdevice[14] = ID + 0x30;
-	lID = ID;
-
-
-
-	/*printf("Opening GhostDrive...\n");
-
-	hDevice = CreateFile(dosdevice,
-		0,
-		FILE_SHARE_READ | FILE_SHARE_WRITE,
-		NULL,
-		OPEN_EXISTING,
-		FILE_ATTRIBUTE_NORMAL,
-		NULL);
 		
-	printf("Opening bus device...\n");*/
+	printf("Opening bus device...\n");
 
 	hDevice = CreateFile("\\\\.\\GhostBus",
 		0,
@@ -220,56 +203,19 @@ void umount_image(int ID) {
 		printf("Error: Could not open bus device\n");
 		return;
 	}
-
-	/*if (hDevice != INVALID_HANDLE_VALUE) {
-		printf("Querying write state...\n");
-
-		result = DeviceIoControl(hDevice,
-			IOCTL_GHOST_DRIVE_UMOUNT_IMAGE,
-			NULL,
-			0,
-			&Written,
-			sizeof(Written),
-			&BytesReturned,
-			NULL);
-
-		if (result == FALSE) {
-			printf("Error: IOCTL code failed: %d\n", GetLastError());
-			CloseHandle(hDevice);
-			return;
-		}
-
-		if (BytesReturned > 0) {
-			if (Written == TRUE) {
-				printf("Image has been written to!\n");*/
-				printf("Querying writer info...\n");
-				
-				for (i = 0; i < MAX_NUM_WRITER_INFO; i++) {
-					WriterInfo = GetWriterInfo(hDevice, i, FALSE);
-					if (WriterInfo != NULL) {
-						PrintWriterInfo(WriterInfo);
-						free(WriterInfo);
-					}
-					else {
-						break;
-					}
-				}
-			/*}
-			else {
-				printf("No data has been written to the image\n");
-			}
+	
+	printf("Querying writer info...\n");
+	
+	for (i = 0; i < MAX_NUM_WRITER_INFO; i++) {
+		WriterInfo = GetWriterInfo(hDevice, i, FALSE, lID);
+		if (WriterInfo != NULL) {
+			PrintWriterInfo(WriterInfo);
+			free(WriterInfo);
 		}
 		else {
-			// This should not happen
-			printf("The driver did not provide write state information\n");
+			break;
 		}
-
-		CloseHandle(hDevice);
 	}
-	else {
-		printf("Error: Could not open %s\n", dosdevice);
-		return;
-	}*/
 
 	printf("Deactivating GhostDrive...\n");
 
