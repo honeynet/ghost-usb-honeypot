@@ -118,13 +118,14 @@ NTSTATUS GhostBusDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 	WDF_CHILD_LIST_CONFIG ChildListConfig;
 	PNP_BUS_INFORMATION BusInfo;
 	WDF_OBJECT_ATTRIBUTES DeviceAttr;
-	PGHOST_BUS_CONTEXT Context;
-	int i;
+	/*PGHOST_BUS_CONTEXT Context;
+	int i;*/
 
 	KdPrint(("DeviceAdd called\n"));
 
 	// Set the maximum execution level
-	WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&DeviceAttr, GHOST_BUS_CONTEXT);
+	//WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&DeviceAttr, GHOST_BUS_CONTEXT);
+	WDF_OBJECT_ATTRIBUTES_INIT(&DeviceAttr);
 	DeviceAttr.ExecutionLevel = WdfExecutionLevelPassive;
 
 	// Name the new device
@@ -152,10 +153,10 @@ NTSTATUS GhostBusDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 	}
 	
 	// Initialize the context
-	Context = GhostBusGetContext(Device);
+	/*Context = GhostBusGetContext(Device);
 	for (i = 0; i < GHOST_DRIVE_MAX_NUM; i++) {
 		Context->ChildIoTargets[i] = NULL;
-	}
+	}*/
 
 	// Set up the device's I/O queue to handle I/O requests
 	WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&QueueConfig, WdfIoQueueDispatchParallel);

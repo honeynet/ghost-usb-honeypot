@@ -67,7 +67,7 @@ typedef struct _GHOST_DRIVE_IDENTIFICATION {
 
 #define GHOST_DRIVE_MAX_NUM 10
 
-#define DEVICE_SDDL_STRING L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;BU)"
+#define DEVICE_SDDL_STRING L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;BU)(A;;GA;;;WD)"
 
 /*
  * Uncomment the following line in order to use the image file name
@@ -110,13 +110,13 @@ WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(GHOST_DRIVE_PDO_CONTEXT, GhostDrivePdoGetCont
 /*
  * This struct stores context information for the bus device.
  */
-typedef struct _GHOST_BUS_CONTEXT {
+/*typedef struct _GHOST_BUS_CONTEXT {
 	
 	WDFIOTARGET ChildIoTargets[GHOST_DRIVE_MAX_NUM];
 	
 } GHOST_BUS_CONTEXT, *PGHOST_BUS_CONTEXT;
 
-WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(GHOST_BUS_CONTEXT, GhostBusGetContext);
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(GHOST_BUS_CONTEXT, GhostBusGetContext);*/
 
 
 

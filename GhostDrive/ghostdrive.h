@@ -34,7 +34,7 @@
 
 #define DRIVE_DEVICE_NAME L"\\Device\\GhostDrive0"
 #define DRIVE_LINK_NAME L"\\DosDevices\\GhostDrive0"
-#define DEVICE_SDDL_STRING L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;BU)"
+#define DEVICE_SDDL_STRING L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;BU)(A;;GA;;;WD)"
 
 #define TAG 'rDhG'
 

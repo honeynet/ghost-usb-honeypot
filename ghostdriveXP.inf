@@ -75,20 +75,6 @@ ServiceType = 1
 StartType = 3
 ErrorControl = 1
 ServiceBinary = %12%\ghostDrive.sys
-AddReg = GhostDriveParameters
-
-
-[GhostDriveParameters]
-HKR,Parameters,"ImageFileName0",,"C:\gd0.img"
-HKR,Parameters,"ImageFileName1",,"C:\gd1.img"
-HKR,Parameters,"ImageFileName2",,"C:\gd2.img"
-HKR,Parameters,"ImageFileName3",,"C:\gd3.img"
-HKR,Parameters,"ImageFileName4",,"C:\gd4.img"
-HKR,Parameters,"ImageFileName5",,"C:\gd5.img"
-HKR,Parameters,"ImageFileName6",,"C:\gd6.img"
-HKR,Parameters,"ImageFileName7",,"C:\gd7.img"
-HKR,Parameters,"ImageFileName8",,"C:\gd8.img"
-HKR,Parameters,"ImageFileName9",,"C:\gdgui.img"
 
 
 [GhostDriveDevice.CoInstallers]
@@ -112,6 +98,6 @@ KmdfLibraryVersion = 1.9
 Ghost = "Ghost USB honeypot"
 DiscDescription = "GhostDrive driver disk 1"
 Mfg = "(Virtual device)"
-DeviceDesc = "GhostDrive virtual memory stick"
+DeviceDesc = "Generic Flash Disk USB Device"
 ServiceName = "GhostDrive driver"
 ServiceDesc = "Control the GhostDrive virtual memory stick"
