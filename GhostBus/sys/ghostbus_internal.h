@@ -62,8 +62,8 @@ typedef struct _GHOST_DRIVE_IDENTIFICATION {
  * Ghost drive device ID and other information
  */
 #define GHOST_DRIVE_DEVICE_ID L"ghostbus\\ghostdrive"
-#define GHOST_DRIVE_DESCRIPTION L"GhostDrive"
-#define GHOST_DRIVE_LOCATION L"GhostBus virtual bus"
+#define GHOST_DRIVE_DESCRIPTION L"Mass storage"
+#define GHOST_DRIVE_LOCATION L"Generic bus"
 
 #define GHOST_DRIVE_MAX_NUM 10
 
