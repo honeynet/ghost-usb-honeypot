@@ -25,10 +25,13 @@
  * 
  */
 
-#include "driver.h"
+#include "ghostbus_internal.h"
 #include "ghostbus.h"
+#include "file_io.h"
+#include "device_control.h"
 #include <version.h>
 
+#include <ntstrsafe.h>
 #include <wdmguid.h>
 
 
@@ -69,6 +72,36 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 
 
 /*
+ * This function is called just before the device object is destroyed. We use it
+ * to unmount the image file in order to ensure that all data is written to disk
+ * successfully before the file handle is discarded.
+ */
+VOID GhostDrivePdoDeviceCleanup(WDFOBJECT Object)
+{
+	NTSTATUS status;
+	PGHOST_DRIVE_PDO_CONTEXT Context;
+	PGHOST_INFO_PROCESS_DATA ProcessInfo;
+	int counter;
+
+	Context = GhostDrivePdoGetContext(Object);
+	KdPrint(("Image has been written to: %u\n", Context->ImageWritten));
+	if (Context->ImageMounted)
+		GhostFileIoUmountImage(Object);
+	
+	// Free the writer info structs
+	counter = 0;
+	while (Context->WriterInfo != NULL) {
+		ProcessInfo = Context->WriterInfo;
+		Context->WriterInfo = Context->WriterInfo->Next;
+		GhostInfoFreeProcessData(ProcessInfo);
+		counter++;
+	}
+	
+	KdPrint(("%d info struct(s) freed\n", counter));
+}
+
+
+/*
  * This routine is called by the framework whenever a new device is found and needs to be installed.
  * For GhostBus, there should be no more than one device in the system.
  *
@@ -85,10 +118,13 @@ NTSTATUS GhostBusDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 	WDF_CHILD_LIST_CONFIG ChildListConfig;
 	PNP_BUS_INFORMATION BusInfo;
 	WDF_OBJECT_ATTRIBUTES DeviceAttr;
+	/*PGHOST_BUS_CONTEXT Context;
+	int i;*/
 
 	KdPrint(("DeviceAdd called\n"));
 
 	// Set the maximum execution level
+	//WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&DeviceAttr, GHOST_BUS_CONTEXT);
 	WDF_OBJECT_ATTRIBUTES_INIT(&DeviceAttr);
 	DeviceAttr.ExecutionLevel = WdfExecutionLevelPassive;
 
@@ -101,7 +137,7 @@ NTSTATUS GhostBusDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 
 	// Set device properties
 	//WdfDeviceInitSetDeviceType(DeviceInit, FILE_DEVICE_BUS_EXTENDER);
-	WdfDeviceInitSetExclusive(DeviceInit, TRUE);
+	//WdfDeviceInitSetExclusive(DeviceInit, TRUE);
 	WdfDeviceInitSetIoType(DeviceInit, WdfDeviceIoBuffered);
 
 	// Initialize the device's child list
@@ -115,9 +151,15 @@ NTSTATUS GhostBusDeviceAdd(WDFDRIVER Driver, PWDFDEVICE_INIT DeviceInit)
 		KdPrint(("Could not create a device\n"));
 		return status;
 	}
+	
+	// Initialize the context
+	/*Context = GhostBusGetContext(Device);
+	for (i = 0; i < GHOST_DRIVE_MAX_NUM; i++) {
+		Context->ChildIoTargets[i] = NULL;
+	}*/
 
 	// Set up the device's I/O queue to handle I/O requests
-	WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&QueueConfig, WdfIoQueueDispatchSequential);
+	WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&QueueConfig, WdfIoQueueDispatchParallel);
 	QueueConfig.EvtIoDeviceControl = GhostBusDeviceControl;
 	status = WdfIoQueueCreate(Device, &QueueConfig, WDF_NO_OBJECT_ATTRIBUTES, NULL);
 	if (!NT_SUCCESS(status)) {
@@ -153,7 +195,163 @@ VOID GhostBusUnload(WDFDRIVER Driver)
 
 
 /*
- * GhostBusDeviceControl handles I/O request packages with device control codes,
+ * This routine initiates an image file for the given drive PDO.
+ */
+NTSTATUS GhostDrivePdoInitImage(WDFDEVICE Device, ULONG ID) {
+	WCHAR imagename[] = IMAGE_NAME;
+	LARGE_INTEGER FileSize;
+	UNICODE_STRING FileToMount, RegValue;
+	NTSTATUS status;
+	WDFKEY ParametersKey;
+	DECLARE_CONST_UNICODE_STRING(ValueName, L"ImageFileName0");
+	USHORT ByteLength = 0;
+	PWCHAR Buffer;
+	int i;
+	PCWSTR Prefix = L"\\DosDevices\\";
+	size_t PrefixLength;
+	
+#ifndef USE_FIXED_IMAGE_NAME
+	KdPrint(("Reading the image file name from the registry\n"));
+	
+	/* Read the desired image file name from the registry */
+	status = WdfDriverOpenParametersRegistryKey(WdfGetDriver(), GENERIC_READ,
+		WDF_NO_OBJECT_ATTRIBUTES, &ParametersKey);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not open the driver's registry key\n"));
+		return status;
+	}
+	
+	ValueName.Buffer[13] = (WCHAR)(ID + 0x30);
+	status = WdfRegistryQueryUnicodeString(ParametersKey, &ValueName, &ByteLength, NULL);
+	if (status != STATUS_BUFFER_OVERFLOW && !NT_SUCCESS(status)) {
+		KdPrint(("Could not obtain the length of the image file name from the registry\n"));
+		return status;
+	}
+	
+	Buffer = ExAllocatePoolWithTag(NonPagedPool, ByteLength, TAG);
+	RtlInitEmptyUnicodeString(&RegValue, Buffer, ByteLength);
+	
+	status = WdfRegistryQueryUnicodeString(ParametersKey, &ValueName, NULL, &RegValue);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not read the image file name from the registry\n"));
+		return status;
+	}	 
+	
+	WdfRegistryClose(ParametersKey);
+	
+	/* Add the required "\DosDevices" prefix */
+	PrefixLength = wcslen(Prefix) * sizeof(WCHAR);
+	Buffer = ExAllocatePoolWithTag(NonPagedPool, ByteLength + PrefixLength, TAG);
+	RtlInitEmptyUnicodeString(&FileToMount, Buffer, ByteLength + PrefixLength);
+	status = RtlUnicodeStringCopyString(&FileToMount, Prefix);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("String copy operation failed\n"));
+		return status;
+	}
+	status = RtlUnicodeStringCat(&FileToMount, &RegValue);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("String copy operation failed\n"));
+		return status;
+	}
+	
+	ExFreePoolWithTag(RegValue.Buffer, TAG);
+#else
+	KdPrint(("Using the image file name that is compiled into the driver\n"));
+	
+	/* Use the fixed image file name */
+	RtlInitUnicodeString(&FileToMount, imagename);
+#endif
+	
+	FileSize.QuadPart = 100 * 1024 * 1024;
+	KdPrint(("Image file name: %wZ\n", &FileToMount));
+	status = GhostFileIoMountImage(Device, &FileToMount, &FileSize);
+	
+#ifndef USE_FIXED_IMAGE_NAME
+	ExFreePoolWithTag(FileToMount.Buffer, TAG);
+#endif
+	
+	return status;
+}
+
+
+NTSTATUS GhostBusForwardToChild(WDFDEVICE BusDevice, ULONG ChildID, WDFREQUEST Request, ULONG IoControlCode, PULONG_PTR info) {
+	GHOST_DRIVE_IDENTIFICATION Identification;
+	WDFCHILDLIST ChildList;
+	NTSTATUS status = STATUS_UNSUCCESSFUL;
+	WDFIOTARGET ChildIoTarget;
+	WDF_IO_TARGET_OPEN_PARAMS OpenParams;
+	WDFMEMORY InputMem, OutputMem;
+	WDF_REQUEST_SEND_OPTIONS SendOptions;
+	WDF_MEMORY_DESCRIPTOR InMemDesc, OutMemDesc;
+	WDFDEVICE ChildPdo;
+	WDF_CHILD_RETRIEVE_INFO ChildInfo;
+	
+	ChildList = WdfFdoGetDefaultChildList(BusDevice);
+	WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER_INIT(&Identification.Header, sizeof(Identification));
+	Identification.Id = ChildID;
+	WDF_CHILD_RETRIEVE_INFO_INIT(&ChildInfo, &Identification.Header);
+	ChildPdo = WdfChildListRetrievePdo(ChildList, &ChildInfo);
+	if (ChildPdo == NULL) {
+		KdPrint(("Bus: couldn't obtain the drive PDO\n"));
+		return status;
+	}
+
+	// Create an I/O target for the bus
+	// TODO: Cache the I/O targets (problem: where to delete?)
+	status = WdfIoTargetCreate(BusDevice, WDF_NO_OBJECT_ATTRIBUTES, &ChildIoTarget);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Bus: couldn't create the I/O target: %lx\n", status));
+		return status;
+	}
+
+	WDF_IO_TARGET_OPEN_PARAMS_INIT_EXISTING_DEVICE(&OpenParams, WdfDeviceWdmGetDeviceObject(ChildPdo));
+	status = WdfIoTargetOpen(ChildIoTarget, &OpenParams);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Bus: couldn't open the I/O target: %lx\n", status));
+		return status;
+	}
+	
+	WdfRequestRetrieveInputMemory(Request, &InputMem);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Bus: couldn't obtain the input memory: %lx\n", status));
+		return status;
+	}
+	WDF_MEMORY_DESCRIPTOR_INIT_HANDLE(&InMemDesc, InputMem, NULL);
+	
+	WdfRequestRetrieveOutputMemory(Request, &OutputMem);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Bus: couldn't obtain the output memory: %lx\n", status));
+		return status;
+	}
+	WDF_MEMORY_DESCRIPTOR_INIT_HANDLE(&OutMemDesc, OutputMem, NULL);
+	
+	WDF_REQUEST_SEND_OPTIONS_INIT(&SendOptions, WDF_REQUEST_SEND_OPTION_SEND_AND_FORGET);
+	
+	/*
+	status = WdfIoTargetFormatRequestForIoctl(ChildIoTarget, Request, IOCTL_GHOST_DRIVE_GET_WRITER_INFO, InputMem, NULL, OutputMem, NULL);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Bus: couldn't format the request: %lx\n", status));
+		break;
+	}
+	
+	status = WdfRequestSend(Request, ChildIoTarget, &SendOptions);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Bus: couldn't send the request: %lx\n", status));
+		break;
+	}
+	*/
+	
+	status = WdfIoTargetSendIoctlSynchronously(ChildIoTarget, Request, IOCTL_GHOST_DRIVE_GET_WRITER_INFO, &InMemDesc, &OutMemDesc, NULL, info);
+	KdPrint(("Bus: request status: %lx", status));
+	
+	WdfIoTargetClose(ChildIoTarget);
+	WdfObjectDelete(ChildIoTarget);
+	return status;
+}
+
+
+/*
+ * GhostBusDeviceControl handles I/O request packages with device control codes for the bus FDO,
  * that is especially user-defined codes controlling child enumeration.
  *
  * TODO: Move request handling to separate functions.
@@ -246,6 +444,10 @@ VOID GhostBusDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBuff
 		break;
 
 	case IOCTL_GHOST_BUS_DISABLE_DRIVE:
+	{
+		WDFDEVICE ChildPdo;
+		WDF_CHILD_RETRIEVE_INFO ChildInfo;
+		
 		KdPrint(("Disabling GhostDrive\n"));
 
 		// Retrieve the drive's ID from the request's input buffer
@@ -261,6 +463,13 @@ VOID GhostBusDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBuff
 
 		WDF_CHILD_IDENTIFICATION_DESCRIPTION_HEADER_INIT(&Identification.Header, sizeof(Identification));
 		Identification.Id = *pID;
+		
+		// Obtain the child's PDO to send it an umount command
+		WDF_CHILD_RETRIEVE_INFO_INIT(&ChildInfo, &Identification.Header);
+		ChildPdo = WdfChildListRetrievePdo(ChildList, &ChildInfo);
+		if (ChildPdo == NULL) {
+			KdPrint(("Bus: Couldn't obtain the drive PDO\n"));
+		}
 
 		/*status = WdfChildListUpdateChildDescriptionAsMissing(ChildList, &Identification.Header);
 		if (!NT_SUCCESS(status)) {
@@ -275,6 +484,30 @@ VOID GhostBusDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBuff
 
 		status = STATUS_SUCCESS;
 		break;
+	}
+	
+	case IOCTL_GHOST_DRIVE_GET_WRITER_INFO:
+	{
+		PGHOST_DRIVE_WRITER_INFO_PARAMETERS Params;
+		
+		/*
+		 * This is actually a request for information from one of our child devices.
+		 * We'll find the corresponding drive PDO and forward the request. Sending the
+		 * IRP to the bus rather than the drive has the advantage that the drive doesn't
+		 * have to be visible to user-mode applications.
+		 */
+		KdPrint(("Bus: writer info request\n"));
+		
+		status = WdfRequestRetrieveInputBuffer(Request, sizeof(GHOST_DRIVE_WRITER_INFO_PARAMETERS), &Params, NULL);
+		if (!NT_SUCCESS(status)) {
+			KdPrint(("Could not retrieve parameters\n"));
+			status = STATUS_INVALID_PARAMETER;
+			break;
+		}
+		
+		status = GhostBusForwardToChild(WdfIoQueueGetDevice(Queue), Params->DeviceID, Request, IOCTL_GHOST_DRIVE_GET_WRITER_INFO, &info);
+		break;
+	}
 
 	default:
 
@@ -285,6 +518,22 @@ VOID GhostBusDeviceControl(WDFQUEUE Queue, WDFREQUEST Request, size_t OutputBuff
 	WdfRequestCompleteWithInformation(Request, status, info);
 }
 
+
+NTSTATUS GhostDrivePdoQueryRemove(WDFDEVICE Device) {
+	PGHOST_DRIVE_PDO_CONTEXT Context;
+	
+	KdPrint(("QueryRemove\n"));
+	
+	Context = GhostDrivePdoGetContext(Device);
+	KdPrint(("Draining the writer info queue...\n"));
+	WdfIoQueuePurgeSynchronously(Context->WriterInfoQueue);
+	
+	if (!NT_SUCCESS(GhostFileIoUmountImage(Device))) {
+		KdPrint(("Could not unmount the image\n"));
+	}
+	
+	return STATUS_SUCCESS;
+}
 
 
 /*
@@ -300,13 +549,50 @@ NTSTATUS GhostBusChildListCreateDevice(WDFCHILDLIST ChildList,
 	DECLARE_CONST_UNICODE_STRING(DeviceDescription, GHOST_DRIVE_DESCRIPTION);
 	DECLARE_CONST_UNICODE_STRING(DeviceLocation, GHOST_DRIVE_LOCATION);
 	DECLARE_UNICODE_STRING_SIZE(InstanceID, 2 * sizeof(WCHAR));		// the ID is only one character
+	DECLARE_CONST_UNICODE_STRING(DeviceSDDL, DEVICE_SDDL_STRING);
 	WDFDEVICE ChildDevice;
 	WDF_DEVICE_PNP_CAPABILITIES PnpCaps;
 	PGHOST_DRIVE_IDENTIFICATION Identification = (PGHOST_DRIVE_IDENTIFICATION)IdentificationDescription;
 	NTSTATUS status;
+	WDF_OBJECT_ATTRIBUTES DeviceAttr;
+	PGHOST_DRIVE_PDO_CONTEXT Context;
+	ULONG ID;
+	WDF_PNPPOWER_EVENT_CALLBACKS PnpPowerCallbacks;
+	WDF_OBJECT_ATTRIBUTES QueueAttr;
+	WDF_IO_QUEUE_CONFIG QueueConfig;
 
 	KdPrint(("ChildListCreateDevice called\n"));
+	ID = ((PGHOST_DRIVE_IDENTIFICATION) IdentificationDescription)->Id;
+	
+	// Define the context for the new device
+	WDF_OBJECT_ATTRIBUTES_INIT_CONTEXT_TYPE(&DeviceAttr, GHOST_DRIVE_PDO_CONTEXT);
+	DeviceAttr.EvtCleanupCallback = GhostDrivePdoDeviceCleanup;
+	DeviceAttr.ExecutionLevel = WdfExecutionLevelPassive;
+	
+	/*
+	// begin tmp
+	{
+		DECLARE_CONST_UNICODE_STRING(GenDisk, L"GenDisk");
+		
+		// Set the device ID
+		status = WdfPdoInitAssignDeviceID(ChildInit, &GenDisk);
+		if (!NT_SUCCESS(status)) {
+			KdPrint(("Could not set the child device's ID\n"));
+			WdfDeviceInitFree(ChildInit);
+			return status;
+		}
 
+		// Set the hardware ID to the same value
+		status = WdfPdoInitAddHardwareID(ChildInit, &GenDisk);
+		if (!NT_SUCCESS(status)) {
+			KdPrint(("Could not set the child device's hardware ID\n"));
+			WdfDeviceInitFree(ChildInit);
+			return status;
+		}
+	}
+	// end tmp
+	*/
+	
 	// Set the device ID
 	status = WdfPdoInitAssignDeviceID(ChildInit, &DeviceID);
 	if (!NT_SUCCESS(status)) {
@@ -346,9 +632,24 @@ NTSTATUS GhostBusChildListCreateDevice(WDFCHILDLIST ChildList,
 		WdfDeviceInitFree(ChildInit);
 		return status;
 	}
+	
+	// Set device properties
+	WdfDeviceInitSetDeviceType(ChildInit, FILE_DEVICE_DISK);
+	WdfDeviceInitSetIoType(ChildInit, WdfDeviceIoDirect);
+	WdfDeviceInitSetExclusive(ChildInit, FALSE);
+	status = WdfDeviceInitAssignSDDLString(ChildInit, &DeviceSDDL);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not assign an SDDL string\n"));
+		return status;
+	}
+	
+	// Register callbacks
+	WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&PnpPowerCallbacks);
+	PnpPowerCallbacks.EvtDeviceQueryRemove = GhostDrivePdoQueryRemove;
+	WdfDeviceInitSetPnpPowerEventCallbacks(ChildInit, &PnpPowerCallbacks);
 
 	// Create the device
-	status = WdfDeviceCreate(&ChildInit, WDF_NO_OBJECT_ATTRIBUTES, &ChildDevice);
+	status = WdfDeviceCreate(&ChildInit, &DeviceAttr, &ChildDevice);
 	if (!NT_SUCCESS(status)) {
 		KdPrint(("Could not create the child device\n"));
 		return status;
@@ -368,6 +669,46 @@ NTSTATUS GhostBusChildListCreateDevice(WDFCHILDLIST ChildList,
 	PnpCaps.NoDisplayInUI = WdfFalse;
 	PnpCaps.UINumber = Identification->Id;
 	WdfDeviceSetPnpCapabilities(ChildDevice, &PnpCaps);
+	
+	// Initialize the device extension
+	Context = GhostDrivePdoGetContext(ChildDevice);
+	Context->ImageMounted = FALSE;
+	Context->ImageWritten = FALSE;
+	Context->ID = ID;
+	Context->ChangeCount = 0;
+	Context->WriterInfoCount = 0;
+	Context->WriterInfo = NULL;
+	
+	// Set up the device's I/O queue to handle I/O requests
+	WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&QueueConfig, WdfIoQueueDispatchSequential);
+	QueueConfig.EvtIoRead = GhostFileIoRead;
+	QueueConfig.EvtIoWrite = GhostFileIoWrite;
+	QueueConfig.EvtIoDeviceControl = GhostDeviceControlDispatch;
+
+	WDF_OBJECT_ATTRIBUTES_INIT(&QueueAttr);
+	QueueAttr.ExecutionLevel = WdfExecutionLevelPassive;	// necessary to collect writer information
+
+	status = WdfIoQueueCreate(ChildDevice, &QueueConfig, &QueueAttr, NULL);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not create the default I/O queue\n"));
+		return status;
+	}
+	
+	// Create a separate queue for blocking writer info requests
+	WDF_IO_QUEUE_CONFIG_INIT(&QueueConfig, WdfIoQueueDispatchManual);
+
+	status = WdfIoQueueCreate(ChildDevice, &QueueConfig, &QueueAttr, &Context->WriterInfoQueue);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Could not create the I/O queue for writer info requests\n"));
+		return status;
+	}
+	
+	// Mount the image
+	status = GhostDrivePdoInitImage(ChildDevice, ID);
+	if (!NT_SUCCESS(status)) {
+		KdPrint(("Mount failed\n"));
+		return status;
+	}
 
 	return STATUS_SUCCESS;
 }

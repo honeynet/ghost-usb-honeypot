@@ -30,7 +30,7 @@
 
 
 #include <windows.h>
-#include <ghostdrive_io.h>
+#include <ghostbus.h>
 
 #include "ghostlib.h"
 

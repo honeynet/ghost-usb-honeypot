@@ -33,6 +33,8 @@
 #include <ntddk.h>
 #include <wdf.h>
 
+#include "information.h"
+
 
 /*
  * Bus GUID
@@ -60,10 +62,61 @@ typedef struct _GHOST_DRIVE_IDENTIFICATION {
  * Ghost drive device ID and other information
  */
 #define GHOST_DRIVE_DEVICE_ID L"ghostbus\\ghostdrive"
-#define GHOST_DRIVE_DESCRIPTION L"GhostDrive"
-#define GHOST_DRIVE_LOCATION L"GhostBus virtual bus"
+#define GHOST_DRIVE_DESCRIPTION L"Mass storage"
+#define GHOST_DRIVE_LOCATION L"Generic bus"
 
 #define GHOST_DRIVE_MAX_NUM 10
+
+#define DEVICE_SDDL_STRING L"D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;BU)(A;;GA;;;WD)"
+
+/*
+ * Uncomment the following line in order to use the image file name
+ * defined below rather than the one that is stored in the registry.
+ * The file name must contain a '0' (zero), which is replaced with
+ * the device ID.
+ */
+// #define USE_FIXED_IMAGE_NAME
+#define IMAGE_NAME L"\\DosDevices\\C:\\gd0.img"
+
+#define TAG 'uBhG'
+
+
+/*
+ * Data structures
+ *
+ * The context struct is attached to each instance of the virtual
+ * device. It contains information about the device itself and the
+ * image file that may be mounted.
+ */
+typedef struct _GHOST_DRIVE_PDO_CONTEXT {
+
+	BOOLEAN ImageMounted;
+	BOOLEAN ImageWritten;
+	HANDLE ImageFile;
+	LARGE_INTEGER ImageSize;
+	ULONG ID;
+	WCHAR DeviceName[256];
+	USHORT DeviceNameLength;
+	ULONG ChangeCount;
+	USHORT WriterInfoCount;
+	PGHOST_INFO_PROCESS_DATA WriterInfo;   // paged memory
+	WDFQUEUE WriterInfoQueue;
+
+} GHOST_DRIVE_PDO_CONTEXT, *PGHOST_DRIVE_PDO_CONTEXT;
+
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(GHOST_DRIVE_PDO_CONTEXT, GhostDrivePdoGetContext);
+
+
+/*
+ * This struct stores context information for the bus device.
+ */
+/*typedef struct _GHOST_BUS_CONTEXT {
+	
+	WDFIOTARGET ChildIoTargets[GHOST_DRIVE_MAX_NUM];
+	
+} GHOST_BUS_CONTEXT, *PGHOST_BUS_CONTEXT;
+
+WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(GHOST_BUS_CONTEXT, GhostBusGetContext);*/
 
 
 

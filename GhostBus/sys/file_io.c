@@ -30,8 +30,8 @@
 
 #include "device_control.h"
 #include "file_io.h"
-#include "ghostdrive.h"
-#include "ghostdrive_io.h"
+#include "ghostbus_internal.h"
+#include "ghostbus.h"
 #include "information.h"
 
 
@@ -41,7 +41,7 @@
  */
 NTSTATUS GhostFileIoMountImage(WDFDEVICE Device, PUNICODE_STRING ImageName, PLARGE_INTEGER ImageSize)
 {
-	PGHOST_DRIVE_CONTEXT Context;
+	PGHOST_DRIVE_PDO_CONTEXT Context;
 	OBJECT_ATTRIBUTES ImageAttr;
 	IO_STATUS_BLOCK ImageStatus;
 	FILE_END_OF_FILE_INFORMATION EofInfo;
@@ -49,7 +49,7 @@ NTSTATUS GhostFileIoMountImage(WDFDEVICE Device, PUNICODE_STRING ImageName, PLAR
 	NTSTATUS status;
 
 	// The device context holds information about a possibly mounted image.
-	Context = GhostDriveGetContext(Device);
+	Context = GhostDrivePdoGetContext(Device);
 
 	// If another image has been mounted already, return an error
 	if (Context->ImageMounted == TRUE) {
@@ -77,7 +77,7 @@ NTSTATUS GhostFileIoMountImage(WDFDEVICE Device, PUNICODE_STRING ImageName, PLAR
 						NULL,
 						0);
 	if (!NT_SUCCESS(status)) {
-		KdPrint(("Could not create or open the image file %wZ", &ImageName));
+		KdPrint(("Could not create or open the image file %wZ", ImageName));
 		return status;
 	}
 
@@ -141,6 +141,7 @@ NTSTATUS GhostFileIoMountImage(WDFDEVICE Device, PUNICODE_STRING ImageName, PLAR
 	// Store information about the image in the device context
 	Context->ImageMounted = TRUE;
 	Context->ChangeCount++;
+	KdPrint(("Mount successful"));
 	return STATUS_SUCCESS;
 }
 
@@ -150,11 +151,11 @@ NTSTATUS GhostFileIoMountImage(WDFDEVICE Device, PUNICODE_STRING ImageName, PLAR
  */
 NTSTATUS GhostFileIoUmountImage(WDFDEVICE Device)
 {
-	PGHOST_DRIVE_CONTEXT Context;
+	PGHOST_DRIVE_PDO_CONTEXT Context;
 	NTSTATUS status;
 
 	// The image handle is stored in the device context
-	Context = GhostDriveGetContext(Device);
+	Context = GhostDrivePdoGetContext(Device);
 	if (Context->ImageMounted == FALSE) {
 		KdPrint(("No image mounted\n"));
 		return STATUS_SUCCESS;
@@ -180,7 +181,7 @@ NTSTATUS GhostFileIoUmountImage(WDFDEVICE Device)
 VOID GhostFileIoRead(WDFQUEUE Queue, WDFREQUEST Request, size_t Length)
 {
 	NTSTATUS status;
-	PGHOST_DRIVE_CONTEXT Context;
+	PGHOST_DRIVE_PDO_CONTEXT Context;
 	WDF_REQUEST_PARAMETERS Params;
 	LARGE_INTEGER Offset;
 	IO_STATUS_BLOCK StatusBlock;
@@ -190,7 +191,7 @@ VOID GhostFileIoRead(WDFQUEUE Queue, WDFREQUEST Request, size_t Length)
 	KdPrint(("Read called\n"));
 
 	// Get the device context
-	Context = GhostDriveGetContext(WdfIoQueueGetDevice(Queue));
+	Context = GhostDrivePdoGetContext(WdfIoQueueGetDevice(Queue));
 
 	// Check if an image is mounted at all
 	if (Context->ImageMounted == FALSE) {
@@ -266,7 +267,7 @@ VOID GhostFileIoRead(WDFQUEUE Queue, WDFREQUEST Request, size_t Length)
 VOID GhostFileIoWrite(WDFQUEUE Queue, WDFREQUEST Request, size_t Length)
 {
 	NTSTATUS status;
-	PGHOST_DRIVE_CONTEXT Context;
+	PGHOST_DRIVE_PDO_CONTEXT Context;
 	WDF_REQUEST_PARAMETERS Params;
 	LARGE_INTEGER Offset;
 	IO_STATUS_BLOCK StatusBlock;
@@ -278,7 +279,7 @@ VOID GhostFileIoWrite(WDFQUEUE Queue, WDFREQUEST Request, size_t Length)
 	KdPrint(("Write called\n"));
 
 	// Get the device context
-	Context = GhostDriveGetContext(WdfIoQueueGetDevice(Queue));
+	Context = GhostDrivePdoGetContext(WdfIoQueueGetDevice(Queue));
 	
 	// Collect information about the caller
 	if (Context->WriterInfoCount < MAX_NUM_WRITER_INFO) {

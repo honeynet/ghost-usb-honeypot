@@ -28,8 +28,8 @@
 #include <ntifs.h>
 
 #include "information.h"
-#include "ghostdrive_io.h"
-#include "ghostdrive.h"
+#include "ghostbus.h"
+#include "ghostbus_internal.h"
 
 
 /*
