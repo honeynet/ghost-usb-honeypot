@@ -1,1 +1,1 @@
-DIRS=GhostBus GhostDrive GhostLib Installer Test
+DIRS=GhostBus GhostDrive GhostLib Installer Test Miniport

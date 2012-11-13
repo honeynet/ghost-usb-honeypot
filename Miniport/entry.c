@@ -25,7 +25,7 @@
  * 
  */
 
-#include <wdm.h>
+#include <ntddk.h>
 #include <storport.h>
 
 #define GHOST_MAX_TARGETS 10
@@ -51,6 +51,13 @@ ULONG GhostVirtualHwStorFindAdapter(
   OUT PBOOLEAN Again
 )
 {
+	UNREFERENCED_PARAMETER(Again);
+	UNREFERENCED_PARAMETER(ArgumentString);
+	UNREFERENCED_PARAMETER(LowerDevice);
+	UNREFERENCED_PARAMETER(BusInformation);
+	UNREFERENCED_PARAMETER(HwContext);
+	UNREFERENCED_PARAMETER(DeviceExtension);
+
 	KdPrint((__FUNCTION__": Setting adapter properties\n"));
 	
 	/*
@@ -91,6 +98,8 @@ BOOLEAN GhostHwStorInitialize(
   IN PVOID DeviceExtension
 )
 {
+	UNREFERENCED_PARAMETER(DeviceExtension);
+
 	KdPrint((__FUNCTION__": Initializing the bus\n"));
 	
 	return TRUE;
@@ -107,6 +116,9 @@ BOOLEAN GhostHwStorResetBus(
   IN ULONG PathId
 )
 {
+	UNREFERENCED_PARAMETER(DeviceExtension);
+	UNREFERENCED_PARAMETER(PathId);
+
 	KdPrint((__FUNCTION__": Resetting the bus\n"));
 	
 	return TRUE;
@@ -120,6 +132,8 @@ VOID GhostHwStorFreeAdapterResources(
   IN PVOID DeviceExtension
 )
 {
+	UNREFERENCED_PARAMETER(DeviceExtension);
+
 	KdPrint((__FUNCTION__": Freeing resources\n"));
 }
 
@@ -134,11 +148,35 @@ BOOLEAN GhostHwStorStartIo(
   IN PSCSI_REQUEST_BLOCK Srb
 )
 {
-	KdPrint((__FUNCTION__": I/O request\n"));
+	UCHAR SrbStatus = SRB_STATUS_INVALID_REQUEST;
+	UNREFERENCED_PARAMETER(DeviceExtension);
+
+	KdPrint((__FUNCTION__": I/O request (0x%x)\n", Srb->Function));
 	
-	Srb->SrbStatus = SRB_STATUS_INVALID_REQUEST;
+	switch (Srb->Function) {
+		case SRB_FUNCTION_EXECUTE_SCSI: {
+			PCDB Cdb = (PCDB)Srb->Cdb;
+			KdPrint((__FUNCTION__": Executing SCSI command 0x%x\n", Cdb->CDB6GENERIC.OperationCode));
+			break;
+		}
+		
+		case SRB_FUNCTION_PNP: {
+			PSCSI_PNP_REQUEST_BLOCK Request = (PSCSI_PNP_REQUEST_BLOCK)Srb;
+			KdPrint((__FUNCTION__": PNP request 0x%x\n", Request->PnPAction));
+			
+			switch (Request->PnPAction) {
+				case StorRemoveDevice:
+					SrbStatus = SRB_STATUS_SUCCESS;
+					break;
+			}
+			
+			break;
+		}
+	}
 	
-	return FALSE;
+	Srb->SrbStatus = SrbStatus;
+	StorPortNotification(RequestComplete, DeviceExtension, Srb);
+	return TRUE;
 }
 
 
@@ -153,6 +191,8 @@ SCSI_ADAPTER_CONTROL_STATUS GhostHwStorAdapterControl(
   IN  PVOID Parameters
 )
 {
+	UNREFERENCED_PARAMETER(DeviceExtension);
+
 	KdPrint((__FUNCTION__": Processing control request\n"));
 	
 	switch (ControlType) {
@@ -178,10 +218,34 @@ SCSI_ADAPTER_CONTROL_STATUS GhostHwStorAdapterControl(
 		break;
 		
 	default:
+		KdPrint((__FUNCTION__": Other control request\n"));
 		break;
 	}
 	
 	return ScsiAdapterControlSuccess;
+}
+
+
+/*
+ * This routine processes service requests to the miniport,
+ * i.e. device control requests with control code IOCTL_MINIPORT_PROCESS_SERVICE_IRP.
+ */
+VOID GhostHwStorProcessServiceRequest(
+  IN PVOID DeviceExtension,
+  IN PVOID Irp
+)
+{
+	NTSTATUS status;
+	PIRP ServiceRequest = (PIRP)Irp;
+	
+	KdPrint((__FUNCTION__": Processing service request\n"));
+	ServiceRequest->IoStatus.Status = STATUS_SUCCESS;
+	
+	status = StorPortCompleteServiceIrp(DeviceExtension, ServiceRequest);
+	if (!NT_SUCCESS(status)) {
+		KdPrint((__FUNCTION__": Service request completion failed with status 0x%lx\n", status));
+		return;
+	}
 }
 
 
@@ -217,6 +281,7 @@ NTSTATUS DriverEntry(struct _DRIVER_OBJECT *DriverObject, PUNICODE_STRING Regist
 	
 	InitData.HwAdapterControl = GhostHwStorAdapterControl;
 	InitData.HwFreeAdapterResources = GhostHwStorFreeAdapterResources;
+	InitData.HwProcessServiceRequest = GhostHwStorProcessServiceRequest;
 	
 	status = StorPortInitialize(DriverObject, RegistryPath, (PHW_INITIALIZATION_DATA) &InitData, NULL);
 	if (status != STATUS_SUCCESS) {
