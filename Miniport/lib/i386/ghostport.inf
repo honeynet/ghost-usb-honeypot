@@ -29,7 +29,7 @@ Signature = "$Windows NT$"
 Class = SCSIAdapter
 ClassGUID = {4D36E97B-E325-11CE-BFC1-08002BE10318}
 Provider = %Ghost%
-DriverVer=11/13/2012,10.58.24.665
+DriverVer=11/14/2012,10.43.12.927
 
 
 [SourceDisksNames]

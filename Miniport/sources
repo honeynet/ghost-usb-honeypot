@@ -5,4 +5,5 @@ TARGETTYPE=MINIPORT
 TARGETLIBS=$(DDK_LIB_PATH)\ntoskrnl.lib \
 		   $(DDK_LIB_PATH)\storport.lib
 		
-SOURCES=entry.c
+SOURCES=entry.c \
+		file_io.c
