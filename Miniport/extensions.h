@@ -27,6 +27,7 @@
 
 #include <storport.h>
 
+#define GHOST_PORT_TAG 'oPhG'
 
 typedef struct _GHOST_DRIVE_PDO_CONTEXT {
 
@@ -35,9 +36,8 @@ typedef struct _GHOST_DRIVE_PDO_CONTEXT {
 	HANDLE ImageFile;
 	LARGE_INTEGER ImageSize;
 	ULONG ID;
-	WCHAR DeviceName[256];
-	USHORT DeviceNameLength;
 	ULONG ChangeCount;
+	UNICODE_STRING ImageName;	// uses paged memory
 	USHORT WriterInfoCount;
 	//PGHOST_INFO_PROCESS_DATA WriterInfo;   // paged memory
 	//WDFQUEUE WriterInfoQueue;

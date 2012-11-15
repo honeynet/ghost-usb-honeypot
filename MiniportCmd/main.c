@@ -118,15 +118,12 @@ void mount_image(int ID) {
 	HANDLE hDevice;
 	DWORD BytesReturned;
 	BOOL result;
-	LONG lID = ID;
-	char dosdevice[] = "\\\\.\\GhostDrive0";
 	PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
 	HDEVINFO DevInfo;
 	SP_DEVICE_INTERFACE_DATA DevInterfaceData;
 	DWORD RequiredSize;
 	PSP_DEVICE_INTERFACE_DETAIL_DATA DevInterfaceDetailData;
-
-	dosdevice[14] = ID + 0x30;
+	PREQUEST_PARAMETERS Parameters;
 	
 	printf("Searching bus device...\n");
 	
@@ -174,11 +171,18 @@ void mount_image(int ID) {
 	}
 
 	printf("Activating GhostDrive...\n");
+	
+	Parameters = malloc(sizeof(REQUEST_PARAMETERS) + strlen("\\DosDevices\\C:\\gd7.img") * sizeof(WCHAR));
+	Parameters->MagicNumber = GHOST_MAGIC_NUMBER;
+	Parameters->Opcode = OpcodeEnable;
+	Parameters->DeviceID = 7;
+	wcscpy(Parameters->ImageName, L"\\DosDevices\\C:\\gd7.img");
+	Parameters->ImageNameLength = strlen("\\DosDevices\\C:\\gd7.img");
 
 	result = DeviceIoControl(hDevice,
 		IOCTL_MINIPORT_PROCESS_SERVICE_IRP,
-		&lID,
-		sizeof(LONG),
+		Parameters,
+		sizeof(REQUEST_PARAMETERS) + strlen("\\DosDevices\\C:\\gd7.img") * sizeof(WCHAR),
 		NULL,
 		0,
 		&BytesReturned,

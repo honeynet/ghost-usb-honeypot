@@ -1,14 +1,19 @@
 #ifndef PORTCTL_H
 #define PORTCTL_H
 
+#define GHOST_MAGIC_NUMBER 0xFEEDABCD
+
 typedef enum {
 	OpcodeEnable,
 	OpcodeDisable
 } GHOST_PORT_OPCODE;
 
 typedef struct _REQUEST_PARAMETERS {
+	ULONG MagicNumber;	// always set to GHOST_MAGIC_NUMBER
 	GHOST_PORT_OPCODE Opcode;
-	ULONG DeviceID;
+	UCHAR DeviceID;
+	USHORT ImageNameLength;	// in characters
+	WCHAR ImageName[1];
 } REQUEST_PARAMETERS, *PREQUEST_PARAMETERS;
 
 #endif

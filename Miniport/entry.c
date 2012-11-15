@@ -27,6 +27,7 @@
 
 #include <ntddk.h>
 #include <storport.h>
+#include <ntddscsi.h>
 
 #include "extensions.h"
 #include <initguid.h>
@@ -451,10 +452,107 @@ VOID GhostHwStorProcessServiceRequest(
 {
 	NTSTATUS status;
 	PIRP ServiceRequest = (PIRP)Irp;
+	PIO_STACK_LOCATION StackLocation;
+	PREQUEST_PARAMETERS Parameters;
+	PGHOST_DRIVE_PDO_CONTEXT Context;
 	
 	KdPrint((__FUNCTION__": Processing service request\n"));
+	
+	// Obtain data from the IRP
+	StackLocation = IoGetCurrentIrpStackLocation(ServiceRequest);
+	if (StackLocation == NULL) {
+		KdPrint((__FUNCTION__": Unable to obtain I/O stack location\n"));
+		ServiceRequest->IoStatus.Status = STATUS_INTERNAL_ERROR;
+		goto Completion;
+	}
+	
+	// Check the function codes - we only respond to device control/service request
+	if (StackLocation->MajorFunction != IRP_MJ_DEVICE_CONTROL) {
+		KdPrint((__FUNCTION__": No device control code\n"));
+		ServiceRequest->IoStatus.Status = STATUS_INVALID_DEVICE_REQUEST;
+		goto Completion;
+	}
+	
+	if (StackLocation->Parameters.DeviceIoControl.IoControlCode != IOCTL_MINIPORT_PROCESS_SERVICE_IRP) {
+		KdPrint((__FUNCTION__": No miniport service request\n"));
+		ServiceRequest->IoStatus.Status = STATUS_INVALID_DEVICE_REQUEST;
+		goto Completion;
+	}
+	
+	KdPrint((__FUNCTION__": %d bytes in, %d bytes out\n", StackLocation->Parameters.DeviceIoControl.InputBufferLength,
+		StackLocation->Parameters.DeviceIoControl.OutputBufferLength));
+	
+	// Exctract the request parameters
+	if (StackLocation->Parameters.DeviceIoControl.InputBufferLength < sizeof(REQUEST_PARAMETERS)) {
+		KdPrint((__FUNCTION__": Not enough input data\n"));
+		ServiceRequest->IoStatus.Status = STATUS_UNSUCCESSFUL;
+		goto Completion;
+	}
+	
+	Parameters = ServiceRequest->AssociatedIrp.SystemBuffer;
+	
+	// Check the magic number
+	if (Parameters->MagicNumber != GHOST_MAGIC_NUMBER) {
+		KdPrint((__FUNCTION__": Magic number incorrect (0x%x)\n", Parameters->MagicNumber));
+		ServiceRequest->IoStatus.Status = STATUS_UNSUCCESSFUL;
+		goto Completion;
+	}
+	
+	// Perform the requested action
+	switch (Parameters->Opcode) {
+		case OpcodeEnable: {
+			SIZE_T NameBufferSize;
+			PVOID NameBuffer;
+			
+			KdPrint((__FUNCTION__": Enabling a device\n"));
+			
+			// Get the device extension
+			Context = StorPortGetLogicalUnit(DeviceExtension, 0, Parameters->DeviceID, 0);
+			if (Context == NULL) {
+				KdPrint((__FUNCTION__": Invalid device ID (%d)\n", Parameters->DeviceID));
+				ServiceRequest->IoStatus.Status = STATUS_UNSUCCESSFUL;
+				goto Completion;
+			}
+			
+			// Make sure that the particular device is offline
+			// TODO
+			
+			// Check the image file name
+			if ((Parameters->ImageNameLength * sizeof(WCHAR) + sizeof(REQUEST_PARAMETERS) - sizeof(WCHAR))
+				> StackLocation->Parameters.DeviceIoControl.InputBufferLength)
+			{
+				KdPrint((__FUNCTION__": Image name length incorrect\n"));
+				ServiceRequest->IoStatus.Status = STATUS_UNSUCCESSFUL;
+				goto Completion;
+			}
+			
+			// Copy the image name to the device extension
+			NameBufferSize = (Parameters->ImageNameLength + 1) * sizeof(WCHAR);
+			NameBuffer = ExAllocatePoolWithTag(PagedPool, NameBufferSize, GHOST_PORT_TAG);
+			RtlZeroMemory(NameBuffer, NameBufferSize);
+			RtlCopyMemory(NameBuffer, Parameters->ImageName, Parameters->ImageNameLength * sizeof(WCHAR));
+			RtlInitUnicodeString(&Context->ImageName, NameBuffer);	// TODO: free
+			
+			KdPrint((__FUNCTION__": Using image %wZ\n", &Context->ImageName));
+			
+			break;
+		}
+		
+		case OpcodeDisable: {
+			KdPrint((__FUNCTION__": Disabling a device\n"));
+			break;
+		}
+		
+		default: {
+			KdPrint((__FUNCTION__": Invalid opcode\n"));
+			ServiceRequest->IoStatus.Status = STATUS_UNSUCCESSFUL;
+			break;
+		}
+	}
+		
 	ServiceRequest->IoStatus.Status = STATUS_SUCCESS;
 	
+Completion:
 	status = StorPortCompleteServiceIrp(DeviceExtension, ServiceRequest);
 	if (!NT_SUCCESS(status)) {
 		KdPrint((__FUNCTION__": Service request completion failed with status 0x%lx\n", status));
