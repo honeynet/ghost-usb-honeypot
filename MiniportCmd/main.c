@@ -29,13 +29,14 @@
 #include <stdio.h>
 #include <windows.h>
 #include <winioctl.h>
+#include <setupapi.h>
 
 #include <ghostbus.h>
 #include <version.h>
-#include <portctl.h>
 #include <ntddscsi.h>
 
-//#define IOCTL_MINIPORT_PROCESS_SERVICE_IRP CTL_CODE(IOCTL_SCSI_BASE,  0x040e, METHOD_BUFFERED, FILE_READ_ACCESS | FILE_WRITE_ACCESS)
+#include <initguid.h>
+#include <portctl.h>
 
 
 
@@ -120,18 +121,52 @@ void mount_image(int ID) {
 	LONG lID = ID;
 	char dosdevice[] = "\\\\.\\GhostDrive0";
 	PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
+	HDEVINFO DevInfo;
+	SP_DEVICE_INTERFACE_DATA DevInterfaceData;
+	DWORD RequiredSize;
+	PSP_DEVICE_INTERFACE_DETAIL_DATA DevInterfaceDetailData;
 
 	dosdevice[14] = ID + 0x30;
+	
+	printf("Searching bus device...\n");
+	
+	// Get all devices that support the interface
+	DevInfo = SetupDiGetClassDevsEx(&GUID_DEVINTERFACE_GHOST, NULL, NULL, DIGCF_DEVICEINTERFACE | DIGCF_PRESENT, NULL, NULL, NULL);
+	if (DevInfo == INVALID_HANDLE_VALUE) {
+		printf("Error: Unable to obtain candidates (0x%x)\n", GetLastError());
+		return;
+	}
+	
+	// Enumerate the device instances
+	DevInterfaceData.cbSize = sizeof(SP_DEVICE_INTERFACE_DATA);
+	if (!SetupDiEnumDeviceInterfaces(DevInfo, NULL, &GUID_DEVINTERFACE_GHOST, 0, &DevInterfaceData)) {
+		printf("Error: Unable to find an instance of the interface (0x%x)\n", GetLastError());
+		return;
+	}
+	
+	// Obtain details
+	SetupDiGetDeviceInterfaceDetail(DevInfo, &DevInterfaceData, NULL, 0, &RequiredSize, NULL);
+	DevInterfaceDetailData = malloc(RequiredSize);
+	DevInterfaceDetailData->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
+	if (!SetupDiGetDeviceInterfaceDetail(DevInfo, &DevInterfaceData, DevInterfaceDetailData, RequiredSize, NULL, NULL)) {
+		printf("Error: Unable to obtain details of the interface instance\n");
+		free(DevInterfaceDetailData);
+		return;
+	}
+	
+	SetupDiDestroyDeviceInfoList(DevInfo);
 
-	printf("Opening bus device...\n");
+	printf("Opening bus device at %s...\n", DevInterfaceDetailData->DevicePath);
 
-	hDevice = CreateFile("\\\\.\\GhostPort",
-		0,
+	hDevice = CreateFile(DevInterfaceDetailData->DevicePath,
+		GENERIC_READ | GENERIC_WRITE,
 		FILE_SHARE_READ | FILE_SHARE_WRITE,
 		NULL,
 		OPEN_EXISTING,
 		FILE_ATTRIBUTE_NORMAL,
 		NULL);
+		
+	free(DevInterfaceDetailData);
 
 	if (hDevice == INVALID_HANDLE_VALUE) {
 		printf("Error: Could not open bus device\n");

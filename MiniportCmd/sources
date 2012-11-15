@@ -1,10 +1,11 @@
 TARGETNAME=GhostTool
 TARGETTYPE=PROGRAM
 
-INCLUDES=..\sys;..\..\GhostDrive;..\..\Miniport;$(DDK_INC_PATH)
+INCLUDES=..\GhostBus\sys;..\GhostDrive;..\..\Miniport;$(DDK_INC_PATH)
 
 TARGETLIBS=$(SDK_LIB_PATH)\shell32.lib \
-           $(SDK_LIB_PATH)\user32.lib
+           $(SDK_LIB_PATH)\user32.lib \
+		   $(SDK_LIB_PATH)\setupapi.lib
 
 SOURCES=main.c
 

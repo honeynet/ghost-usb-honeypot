@@ -29,6 +29,8 @@
 #include <storport.h>
 
 #include "extensions.h"
+#include <initguid.h>
+#include "portctl.h"
 
 #define GHOST_MAX_TARGETS 10
 #define GHOST_VENDOR_ID "Ghost"
@@ -57,18 +59,14 @@ ULONG GhostVirtualHwStorFindAdapter(
   OUT PBOOLEAN Again
 )
 {
-	UNREFERENCED_PARAMETER(Again);
-	UNREFERENCED_PARAMETER(ArgumentString);
-	UNREFERENCED_PARAMETER(LowerDevice);
-	UNREFERENCED_PARAMETER(BusInformation);
-	UNREFERENCED_PARAMETER(HwContext);
-	UNREFERENCED_PARAMETER(DeviceExtension);
+	NTSTATUS status;
+	PGHOST_PORT_EXTENSION PortExtension = DeviceExtension;
 
 	KdPrint((__FUNCTION__": Setting adapter properties\n"));
 	
-	/*
-	 * Set the virtual adapter's properties
-	 */
+	//
+	// Set the virtual adapter's properties
+	//
 	if (ConfigInfo->NumberOfPhysicalBreaks == SP_UNINITIALIZED_VALUE) {
 		KdPrint((__FUNCTION__": Number of physical breaks is uninitialized\n"));
 		ConfigInfo->NumberOfPhysicalBreaks = 0;
@@ -89,6 +87,18 @@ ULONG GhostVirtualHwStorFindAdapter(
 	ConfigInfo->SynchronizationModel = StorSynchronizeFullDuplex;
 	ConfigInfo->VirtualDevice = TRUE;
 	
+	//
+	// Register the device interface
+	//
+	KdPrint((__FUNCTION__": Registering device interface\n"));
+	status = IoRegisterDeviceInterface(LowerDevice, &GUID_DEVINTERFACE_GHOST, NULL, &PortExtension->DeviceInterface);
+	if (!NT_SUCCESS(status)) {
+		KdPrint((__FUNCTION__": Unable to register device interface\n"));
+		return SP_RETURN_ERROR;
+	}
+	
+	KdPrint((__FUNCTION__": Device interface is at %wZ\n", &PortExtension->DeviceInterface));
+	
 	return SP_RETURN_FOUND;
 }
 
@@ -100,7 +110,17 @@ BOOLEAN GhostHwStorPassiveInitializeRoutine(
   IN PVOID DeviceExtension
 )
 {
+	PGHOST_PORT_EXTENSION PortExtension = DeviceExtension;
+	NTSTATUS status;
+	
 	KdPrint((__FUNCTION__": Passive initialization\n"));
+	
+	// Enable the device interface
+	status = IoSetDeviceInterfaceState(&PortExtension->DeviceInterface, TRUE);
+	if (!NT_SUCCESS(status)) {
+		KdPrint((__FUNCTION__": Unable to activate device interface\n"));
+		return FALSE;
+	}
 	
 	return TRUE;
 }
@@ -153,9 +173,12 @@ VOID GhostHwStorFreeAdapterResources(
   IN PVOID DeviceExtension
 )
 {
-	UNREFERENCED_PARAMETER(DeviceExtension);
+	PGHOST_PORT_EXTENSION PortExtension = DeviceExtension;
 
 	KdPrint((__FUNCTION__": Freeing resources\n"));
+	if (PortExtension->DeviceInterface.Buffer != NULL) {
+		RtlFreeUnicodeString(&PortExtension->DeviceInterface);
+	}
 }
 
 
@@ -461,7 +484,7 @@ NTSTATUS DriverEntry(struct _DRIVER_OBJECT *DriverObject, PUNICODE_STRING Regist
 	
 	InitData.HwAdapterState = NULL;
 	
-	InitData.DeviceExtensionSize = sizeof(GHOST_PORT_CONTEXT);
+	InitData.DeviceExtensionSize = sizeof(GHOST_PORT_EXTENSION);
 	InitData.SpecificLuExtensionSize = sizeof(GHOST_DRIVE_PDO_CONTEXT);
 	InitData.SrbExtensionSize = 0;
 	
