@@ -62,6 +62,54 @@ void PrintWriterInfo(PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo) {
 }
 
 
+HANDLE OpenBus() {
+	HANDLE hDevice;
+	HDEVINFO DevInfo;
+	SP_DEVICE_INTERFACE_DATA DevInterfaceData;
+	DWORD RequiredSize;
+	PSP_DEVICE_INTERFACE_DETAIL_DATA DevInterfaceDetailData;
+	
+	// Get all devices that support the interface
+	DevInfo = SetupDiGetClassDevsEx(&GUID_DEVINTERFACE_GHOST, NULL, NULL, DIGCF_DEVICEINTERFACE | DIGCF_PRESENT, NULL, NULL, NULL);
+	if (DevInfo == INVALID_HANDLE_VALUE) {
+		printf("Error: Unable to obtain candidates (0x%x)\n", GetLastError());
+		return INVALID_HANDLE_VALUE;
+	}
+	
+	// Enumerate the device instances
+	DevInterfaceData.cbSize = sizeof(SP_DEVICE_INTERFACE_DATA);
+	if (!SetupDiEnumDeviceInterfaces(DevInfo, NULL, &GUID_DEVINTERFACE_GHOST, 0, &DevInterfaceData)) {
+		printf("Error: Unable to find an instance of the interface (0x%x)\n", GetLastError());
+		return INVALID_HANDLE_VALUE;
+	}
+	
+	// Obtain details
+	SetupDiGetDeviceInterfaceDetail(DevInfo, &DevInterfaceData, NULL, 0, &RequiredSize, NULL);
+	DevInterfaceDetailData = malloc(RequiredSize);
+	DevInterfaceDetailData->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
+	if (!SetupDiGetDeviceInterfaceDetail(DevInfo, &DevInterfaceData, DevInterfaceDetailData, RequiredSize, NULL, NULL)) {
+		printf("Error: Unable to obtain details of the interface instance\n");
+		free(DevInterfaceDetailData);
+		return INVALID_HANDLE_VALUE;
+	}
+	
+	SetupDiDestroyDeviceInfoList(DevInfo);
+
+	printf("Opening bus device at %s...\n", DevInterfaceDetailData->DevicePath);
+
+	hDevice = CreateFile(DevInterfaceDetailData->DevicePath,
+		GENERIC_READ | GENERIC_WRITE,
+		FILE_SHARE_READ | FILE_SHARE_WRITE,
+		NULL,
+		OPEN_EXISTING,
+		FILE_ATTRIBUTE_NORMAL,
+		NULL);
+		
+	free(DevInterfaceDetailData);
+	return hDevice;
+}
+
+
 PGHOST_DRIVE_WRITER_INFO_RESPONSE GetWriterInfo(HANDLE Device, USHORT Index, BOOLEAN Block, ULONG DeviceID) {
 	GHOST_DRIVE_WRITER_INFO_PARAMETERS WriterInfoParams;
 	BOOL result;
@@ -119,52 +167,9 @@ void mount_image(int ID) {
 	DWORD BytesReturned;
 	BOOL result;
 	PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
-	HDEVINFO DevInfo;
-	SP_DEVICE_INTERFACE_DATA DevInterfaceData;
-	DWORD RequiredSize;
-	PSP_DEVICE_INTERFACE_DETAIL_DATA DevInterfaceDetailData;
 	PREQUEST_PARAMETERS Parameters;
 	
-	printf("Searching bus device...\n");
-	
-	// Get all devices that support the interface
-	DevInfo = SetupDiGetClassDevsEx(&GUID_DEVINTERFACE_GHOST, NULL, NULL, DIGCF_DEVICEINTERFACE | DIGCF_PRESENT, NULL, NULL, NULL);
-	if (DevInfo == INVALID_HANDLE_VALUE) {
-		printf("Error: Unable to obtain candidates (0x%x)\n", GetLastError());
-		return;
-	}
-	
-	// Enumerate the device instances
-	DevInterfaceData.cbSize = sizeof(SP_DEVICE_INTERFACE_DATA);
-	if (!SetupDiEnumDeviceInterfaces(DevInfo, NULL, &GUID_DEVINTERFACE_GHOST, 0, &DevInterfaceData)) {
-		printf("Error: Unable to find an instance of the interface (0x%x)\n", GetLastError());
-		return;
-	}
-	
-	// Obtain details
-	SetupDiGetDeviceInterfaceDetail(DevInfo, &DevInterfaceData, NULL, 0, &RequiredSize, NULL);
-	DevInterfaceDetailData = malloc(RequiredSize);
-	DevInterfaceDetailData->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
-	if (!SetupDiGetDeviceInterfaceDetail(DevInfo, &DevInterfaceData, DevInterfaceDetailData, RequiredSize, NULL, NULL)) {
-		printf("Error: Unable to obtain details of the interface instance\n");
-		free(DevInterfaceDetailData);
-		return;
-	}
-	
-	SetupDiDestroyDeviceInfoList(DevInfo);
-
-	printf("Opening bus device at %s...\n", DevInterfaceDetailData->DevicePath);
-
-	hDevice = CreateFile(DevInterfaceDetailData->DevicePath,
-		GENERIC_READ | GENERIC_WRITE,
-		FILE_SHARE_READ | FILE_SHARE_WRITE,
-		NULL,
-		OPEN_EXISTING,
-		FILE_ATTRIBUTE_NORMAL,
-		NULL);
-		
-	free(DevInterfaceDetailData);
-
+	hDevice = OpenBus();
 	if (hDevice == INVALID_HANDLE_VALUE) {
 		printf("Error: Could not open bus device\n");
 		return;
@@ -231,23 +236,17 @@ void umount_image(int ID) {
 	BOOLEAN Written = FALSE;
 	PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
 	USHORT i;
+	REQUEST_PARAMETERS Parameters;
 		
 	printf("Opening bus device...\n");
 
-	hDevice = CreateFile("\\\\.\\GhostBus",
-		0,
-		FILE_SHARE_READ | FILE_SHARE_WRITE,
-		NULL,
-		OPEN_EXISTING,
-		FILE_ATTRIBUTE_NORMAL,
-		NULL);
-
+	hDevice = OpenBus();
 	if (hDevice == INVALID_HANDLE_VALUE) {
 		printf("Error: Could not open bus device\n");
 		return;
 	}
 	
-	printf("Querying writer info...\n");
+	/*printf("Querying writer info...\n");
 	
 	for (i = 0; i < MAX_NUM_WRITER_INFO; i++) {
 		WriterInfo = GetWriterInfo(hDevice, i, FALSE, lID);
@@ -258,14 +257,18 @@ void umount_image(int ID) {
 		else {
 			break;
 		}
-	}
+	}*/
 
 	printf("Deactivating GhostDrive...\n");
+	
+	Parameters.MagicNumber = GHOST_MAGIC_NUMBER;
+	Parameters.Opcode = OpcodeDisable;
+	Parameters.DeviceID = 7;
 
 	result = DeviceIoControl(hDevice,
-		IOCTL_GHOST_BUS_DISABLE_DRIVE,
-		&lID,
-		sizeof(LONG),
+		IOCTL_MINIPORT_PROCESS_SERVICE_IRP,
+		&Parameters,
+		sizeof(REQUEST_PARAMETERS),
 		NULL,
 		0,
 		&BytesReturned,

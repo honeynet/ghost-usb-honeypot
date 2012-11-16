@@ -132,7 +132,6 @@ NTSTATUS GhostFileIoMountImage(PGHOST_DRIVE_PDO_CONTEXT Context, PUNICODE_STRING
 
 	// Store information about the image in the device context
 	Context->ImageMounted = TRUE;
-	Context->ChangeCount++;
 	KdPrint(("Mount successful"));
 	return STATUS_SUCCESS;
 }

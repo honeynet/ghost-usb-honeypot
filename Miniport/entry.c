@@ -30,6 +30,7 @@
 #include <ntddscsi.h>
 
 #include "extensions.h"
+#include "file_io.h"
 #include <initguid.h>
 #include "portctl.h"
 
@@ -454,7 +455,6 @@ VOID GhostHwStorProcessServiceRequest(
 	PIRP ServiceRequest = (PIRP)Irp;
 	PIO_STACK_LOCATION StackLocation;
 	PREQUEST_PARAMETERS Parameters;
-	PGHOST_DRIVE_PDO_CONTEXT Context;
 	
 	KdPrint((__FUNCTION__": Processing service request\n"));
 	
@@ -501,8 +501,10 @@ VOID GhostHwStorProcessServiceRequest(
 	// Perform the requested action
 	switch (Parameters->Opcode) {
 		case OpcodeEnable: {
+			PGHOST_DRIVE_PDO_CONTEXT Context;
 			SIZE_T NameBufferSize;
 			PVOID NameBuffer;
+			UNICODE_STRING ImageName;
 			
 			KdPrint((__FUNCTION__": Enabling a device\n"));
 			
@@ -531,15 +533,41 @@ VOID GhostHwStorProcessServiceRequest(
 			NameBuffer = ExAllocatePoolWithTag(PagedPool, NameBufferSize, GHOST_PORT_TAG);
 			RtlZeroMemory(NameBuffer, NameBufferSize);
 			RtlCopyMemory(NameBuffer, Parameters->ImageName, Parameters->ImageNameLength * sizeof(WCHAR));
-			RtlInitUnicodeString(&Context->ImageName, NameBuffer);	// TODO: free
+			RtlInitUnicodeString(&ImageName, NameBuffer);
 			
-			KdPrint((__FUNCTION__": Using image %wZ\n", &Context->ImageName));
+			KdPrint((__FUNCTION__": Using image %wZ\n", &ImageName));
+			status = GhostFileIoMountImage(Context, &ImageName, &Parameters->ImageSize);
+			if (!NT_SUCCESS(status)) {
+				KdPrint((__FUNCTION__": Mount failed (0x%lx)\n", status));
+				ExFreePoolWithTag(NameBuffer, GHOST_PORT_TAG);
+				ServiceRequest->IoStatus.Status = STATUS_INTERNAL_ERROR;
+				goto Completion;
+			}
 			
+			ExFreePoolWithTag(NameBuffer, GHOST_PORT_TAG);
 			break;
 		}
 		
 		case OpcodeDisable: {
+			PGHOST_DRIVE_PDO_CONTEXT Context;
+			
 			KdPrint((__FUNCTION__": Disabling a device\n"));
+			
+			// Get the device extension
+			Context = StorPortGetLogicalUnit(DeviceExtension, 0, Parameters->DeviceID, 0);
+			if (Context == NULL) {
+				KdPrint((__FUNCTION__": Invalid device ID (%d)\n", Parameters->DeviceID));
+				ServiceRequest->IoStatus.Status = STATUS_UNSUCCESSFUL;
+				goto Completion;
+			}
+			
+			status = GhostFileIoUmountImage(Context);
+			if (!NT_SUCCESS(status)) {
+				KdPrint((__FUNCTION__": Umount failed (0x%lx)\n", status));
+				ServiceRequest->IoStatus.Status = STATUS_INTERNAL_ERROR;
+				goto Completion;
+			}
+			
 			break;
 		}
 		

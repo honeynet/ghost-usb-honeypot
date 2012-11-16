@@ -12,6 +12,7 @@ typedef struct _REQUEST_PARAMETERS {
 	ULONG MagicNumber;	// always set to GHOST_MAGIC_NUMBER
 	GHOST_PORT_OPCODE Opcode;
 	UCHAR DeviceID;
+	LARGE_INTEGER ImageSize;	// in bytes
 	USHORT ImageNameLength;	// in characters
 	WCHAR ImageName[1];
 } REQUEST_PARAMETERS, *PREQUEST_PARAMETERS;

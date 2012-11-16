@@ -36,7 +36,6 @@ typedef struct _GHOST_DRIVE_PDO_CONTEXT {
 	HANDLE ImageFile;
 	LARGE_INTEGER ImageSize;
 	ULONG ID;
-	ULONG ChangeCount;
 	UNICODE_STRING ImageName;	// uses paged memory
 	USHORT WriterInfoCount;
 	//PGHOST_INFO_PROCESS_DATA WriterInfo;   // paged memory
