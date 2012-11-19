@@ -53,14 +53,25 @@ typedef struct _GHOST_DRIVE_PDO_CONTEXT {
 typedef enum {
 	GhostDriveEnabled,
 	GhostDriveDisabled,
-	GhostDriveInitializing
+	GhostDriveInitRequired,
+	GhostDriveInitInProgress
 } GhostDriveState;
 
 
+typedef enum {
+	WorkItemIo,
+	WorkItemInitialize
+} WorkItemType;
+
+
 typedef struct _IO_WORK_ITEM {
+	WorkItemType Type;
 	LIST_ENTRY ListNode;
-	PSCSI_REQUEST_BLOCK Srb;
 	PGHOST_DRIVE_PDO_CONTEXT DriveContext;
+	union {
+		PSCSI_REQUEST_BLOCK Srb;
+		ULONG DeviceID;
+	};
 } IO_WORK_ITEM, *PIO_WORK_ITEM;
 
 

@@ -216,56 +216,6 @@ VOID GhostHwStorFreeAdapterResources(
 }
 
 
-BOOLEAN InitializeDrive(PGHOST_PORT_EXTENSION PortExtension, PGHOST_DRIVE_PDO_CONTEXT Context, ULONG DeviceID) {
-	NTSTATUS status;
-	SIZE_T NameBufferSize;
-	PVOID NameBuffer;
-	UNICODE_STRING ImageName;
-	PREQUEST_PARAMETERS Parameters = PortExtension->MountParameters[DeviceID];
-	
-	// Make sure that we have mount parameters
-	if (Parameters == NULL) {
-		// This should never happen
-		KdPrint((__FUNCTION__": No mount parameters available\n"));
-		PortExtension->DriveStates[DeviceID] = GhostDriveDisabled;
-		return FALSE;
-	}
-	
-	// Initialize the device extension
-	Context->ImageMounted = FALSE;
-	Context->ImageWritten = FALSE;
-	Context->ImageSize.QuadPart = 0;
-	Context->ID = DeviceID;
-	Context->WriterInfoCount = 0;
-	
-	// Mount the image
-	NameBufferSize = (Parameters->ImageNameLength + 1) * sizeof(WCHAR);
-	NameBuffer = ExAllocatePoolWithTag(PagedPool, NameBufferSize, GHOST_PORT_TAG);
-	RtlZeroMemory(NameBuffer, NameBufferSize);
-	RtlCopyMemory(NameBuffer, Parameters->ImageName, Parameters->ImageNameLength * sizeof(WCHAR));
-	RtlInitUnicodeString(&ImageName, NameBuffer);
-	
-	KdPrint((__FUNCTION__": Using image %wZ\n", &ImageName));
-	status = GhostFileIoMountImage(Context, &ImageName, &Parameters->ImageSize);
-	if (!NT_SUCCESS(status)) {
-		KdPrint((__FUNCTION__": Mount failed (0x%lx)\n", status));
-		ExFreePoolWithTag(NameBuffer, GHOST_PORT_TAG);
-		ExFreePoolWithTag(PortExtension->MountParameters[DeviceID], GHOST_PORT_TAG);
-		PortExtension->MountParameters[DeviceID] = NULL;
-		PortExtension->DriveStates[DeviceID] = GhostDriveDisabled;
-		return FALSE;
-	}
-	
-	// Clean up
-	ExFreePoolWithTag(NameBuffer, GHOST_PORT_TAG);
-	ExFreePoolWithTag(PortExtension->MountParameters[DeviceID], GHOST_PORT_TAG);
-	PortExtension->MountParameters[DeviceID] = NULL;
-	
-	// Finish initialization
-	PortExtension->DriveStates[DeviceID] = GhostDriveEnabled;
-	return TRUE;
-}
-
 
 /*
  * This is the routine that handles I/O for the bus and all its children.
@@ -297,17 +247,26 @@ BOOLEAN GhostHwStorStartIo(
 			}
 			
 			// Initialize the device if necessary
-			if (PortExtension->DriveStates[Srb->TargetId] == GhostDriveInitializing) {
-				if (!InitializeDrive(PortExtension, Context, Srb->TargetId)) {
-					KdPrint((__FUNCTION__": Drive initialization failed\n"));
-					// Officially, the device never existed
-					SrbStatus = SRB_STATUS_NO_DEVICE;
-					break;
-				}
+			if (PortExtension->DriveStates[Srb->TargetId] == GhostDriveInitRequired) {
+				//
+				// The device is not yet fully initialized. Unfortunately, we can't initialize it
+				// at the current IRQL, so we dispatch to the I/O worker thread. Meanwhile, we complete
+				// all requests with status "pending".
+				//
+				PIO_WORK_ITEM WorkItem;
+				
+				WorkItem = ExAllocatePoolWithTag(NonPagedPool, sizeof(IO_WORK_ITEM), GHOST_PORT_TAG);
+				WorkItem->Type = WorkItemInitialize;
+				WorkItem->Srb = NULL;
+				WorkItem->DriveContext = Context;
+				WorkItem->DeviceID = Srb->TargetId;
+				EnqueueWorkItem(PortExtension, WorkItem);
+				
+				PortExtension->DriveStates[Srb->TargetId] = GhostDriveInitInProgress;
 			}
 			
 			// Is the device online?
-			if (PortExtension->DriveStates[Srb->TargetId] != GhostDriveEnabled) {
+			if (PortExtension->DriveStates[Srb->TargetId] == GhostDriveDisabled) {
 				KdPrint((__FUNCTION__": Device %d is offline\n", Srb->TargetId));
 				SrbStatus = SRB_STATUS_NO_DEVICE;
 				break;
@@ -336,11 +295,6 @@ BOOLEAN GhostHwStorStartIo(
 						break;
 					}
 					
-					/*status = StorPortGetSystemAddress(DeviceExtension, Srb, &Inquiry);
-					if (!NT_SUCCESS(status)) {
-						SrbStatus = SRB_STATUS_ERROR;
-						break;
-					}*/
 					Inquiry = (PINQUIRYDATA)Srb->DataBuffer;
 					
 					RtlZeroMemory(Inquiry, Srb->DataTransferLength);
@@ -401,8 +355,8 @@ BOOLEAN GhostHwStorStartIo(
 						break;
 					}
 					
-					if (!Context->ImageMounted) {
-						KdPrint((__FUNCTION__": No image mounted\n"));
+					if (PortExtension->DriveStates[Srb->TargetId] != GhostDriveEnabled) {
+						KdPrint((__FUNCTION__": Device not ready\n"));
 						SrbStatus = SRB_STATUS_PENDING;
 						break;
 					}
@@ -426,10 +380,10 @@ BOOLEAN GhostHwStorStartIo(
 					//
 					KdPrint((__FUNCTION__": Enqueuing work item\n"));
 					WorkItem = ExAllocatePoolWithTag(NonPagedPool, sizeof(IO_WORK_ITEM), GHOST_PORT_TAG);
+					WorkItem->Type = WorkItemIo;
 					WorkItem->Srb = Srb;
 					WorkItem->DriveContext = Context;
-					ExInterlockedInsertTailList(&PortExtension->IoWorkItems, &WorkItem->ListNode, &PortExtension->IoWorkItemsLock);
-					KeSetEvent(&PortExtension->IoWorkAvailable, IO_NO_INCREMENT, FALSE);
+					EnqueueWorkItem(PortExtension, WorkItem);
 					return TRUE;
 				}
 				
@@ -623,8 +577,14 @@ VOID GhostHwStorProcessServiceRequest(
 			PortExtension->MountParameters[Parameters->DeviceID] = ParamCopy;
 			
 			// Set the device online
-			PortExtension->DriveStates[Parameters->DeviceID] = GhostDriveInitializing;
+			PortExtension->DriveStates[Parameters->DeviceID] = GhostDriveInitRequired;
 			StorPortNotification(BusChangeDetected, DeviceExtension, 0);
+			
+			//
+			// We can't fully initialize here, because the drive context is not yet available. So we only set the device's
+			// state to "InitRequired" and do the actual initialization in HwStorStartIo, where we have the context.
+			//
+			
 			break;
 		}
 		
