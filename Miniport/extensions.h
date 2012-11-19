@@ -25,9 +25,16 @@
  * 
  */
 
+#ifndef EXTENSIONS_H
+#define EXTENSIONS_H
+
+#include <ntddk.h>
 #include <storport.h>
 
+#include "portctl.h"
+
 #define GHOST_PORT_TAG 'oPhG'
+#define GHOST_MAX_TARGETS 10
 
 typedef struct _GHOST_DRIVE_PDO_CONTEXT {
 
@@ -36,7 +43,6 @@ typedef struct _GHOST_DRIVE_PDO_CONTEXT {
 	HANDLE ImageFile;
 	LARGE_INTEGER ImageSize;
 	ULONG ID;
-	UNICODE_STRING ImageName;	// uses paged memory
 	USHORT WriterInfoCount;
 	//PGHOST_INFO_PROCESS_DATA WriterInfo;   // paged memory
 	//WDFQUEUE WriterInfoQueue;
@@ -44,8 +50,31 @@ typedef struct _GHOST_DRIVE_PDO_CONTEXT {
 } GHOST_DRIVE_PDO_CONTEXT, *PGHOST_DRIVE_PDO_CONTEXT;
 
 
+typedef enum {
+	GhostDriveEnabled,
+	GhostDriveDisabled,
+	GhostDriveInitializing
+} GhostDriveState;
+
+
+typedef struct _IO_WORK_ITEM {
+	LIST_ENTRY ListNode;
+	PSCSI_REQUEST_BLOCK Srb;
+	PGHOST_DRIVE_PDO_CONTEXT DriveContext;
+} IO_WORK_ITEM, *PIO_WORK_ITEM;
+
+
 typedef struct _GHOST_PORT_EXTENSION {
 
 	UNICODE_STRING DeviceInterface;
+	GhostDriveState DriveStates[GHOST_MAX_TARGETS];
+	PREQUEST_PARAMETERS MountParameters[GHOST_MAX_TARGETS];	// non-paged memory
+	LIST_ENTRY IoWorkItems;
+	KSPIN_LOCK IoWorkItemsLock;
+	KEVENT IoWorkAvailable;
+	PKTHREAD IoThread;
+	KEVENT IoThreadTerminate;
 	
 } GHOST_PORT_EXTENSION, *PGHOST_PORT_EXTENSION;
+
+#endif

@@ -31,14 +31,13 @@
 
 #include "extensions.h"
 #include "file_io.h"
+#include "io_worker.h"
 #include <initguid.h>
 #include "portctl.h"
 
-#define GHOST_MAX_TARGETS 10
 #define GHOST_VENDOR_ID "Ghost"
 #define GHOST_PRODUCT_ID "GhostPort"
 #define GHOST_PRODUCT_REVISION "V0.2"
-#define GHOST_BLOCK_SIZE 512
 
 
 /*
@@ -63,6 +62,7 @@ ULONG GhostVirtualHwStorFindAdapter(
 {
 	NTSTATUS status;
 	PGHOST_PORT_EXTENSION PortExtension = DeviceExtension;
+	ULONG StorStatus;
 
 	KdPrint((__FUNCTION__": Setting adapter properties\n"));
 	
@@ -114,8 +114,25 @@ BOOLEAN GhostHwStorPassiveInitializeRoutine(
 {
 	PGHOST_PORT_EXTENSION PortExtension = DeviceExtension;
 	NTSTATUS status;
+	HANDLE IoThreadHandle;
 	
 	KdPrint((__FUNCTION__": Passive initialization\n"));
+	
+	// Start the I/O thread
+	status = PsCreateSystemThread(&IoThreadHandle, GENERIC_ALL, NULL, NULL, NULL, IoWorkerThread, PortExtension);
+	if (!NT_SUCCESS(status)) {
+		KdPrint((__FUNCTION__": I/O worker thread creation failed (0x%lx)\n", status));
+		return FALSE;
+	}
+	
+	// Store the thread object
+	status = ObReferenceObjectByHandle(IoThreadHandle, THREAD_ALL_ACCESS, *PsThreadType, KernelMode, &PortExtension->IoThread, NULL);
+	if (!NT_SUCCESS(status)) {
+		KdPrint((__FUNCTION__": Unable to obtain the worker thread object (0x%lx)\n", status));
+		KeSetEvent(&PortExtension->IoThreadTerminate, IO_NO_INCREMENT, FALSE);
+		// Hope that the thread terminates before the driver is unloaded...
+		return FALSE;
+	}
 	
 	// Enable the device interface
 	status = IoSetDeviceInterfaceState(&PortExtension->DeviceInterface, TRUE);
@@ -139,8 +156,23 @@ BOOLEAN GhostHwStorInitialize(
   IN PVOID DeviceExtension
 )
 {
+	int i;
+	PGHOST_PORT_EXTENSION PortExtension = DeviceExtension;
+	
 	KdPrint((__FUNCTION__": Initializing the bus\n"));
 	
+	// Initialize the device extension
+	for (i = 0; i < GHOST_MAX_TARGETS; i++) {
+		PortExtension->DriveStates[i] = GhostDriveDisabled;
+		PortExtension->MountParameters[i] = NULL;
+	}
+	
+	KeInitializeEvent(&PortExtension->IoWorkAvailable, SynchronizationEvent, FALSE);
+	KeInitializeEvent(&PortExtension->IoThreadTerminate, SynchronizationEvent, FALSE);
+	KeInitializeSpinLock(&PortExtension->IoWorkItemsLock);
+	InitializeListHead(&PortExtension->IoWorkItems);
+	
+	// Enable further initialization at PASSIVE_LEVEL
 	if (!StorPortEnablePassiveInitialization(DeviceExtension, GhostHwStorPassiveInitializeRoutine)) {
 		KdPrint((__FUNCTION__": Passive initialization not possible\n"));
 	}
@@ -184,6 +216,57 @@ VOID GhostHwStorFreeAdapterResources(
 }
 
 
+BOOLEAN InitializeDrive(PGHOST_PORT_EXTENSION PortExtension, PGHOST_DRIVE_PDO_CONTEXT Context, ULONG DeviceID) {
+	NTSTATUS status;
+	SIZE_T NameBufferSize;
+	PVOID NameBuffer;
+	UNICODE_STRING ImageName;
+	PREQUEST_PARAMETERS Parameters = PortExtension->MountParameters[DeviceID];
+	
+	// Make sure that we have mount parameters
+	if (Parameters == NULL) {
+		// This should never happen
+		KdPrint((__FUNCTION__": No mount parameters available\n"));
+		PortExtension->DriveStates[DeviceID] = GhostDriveDisabled;
+		return FALSE;
+	}
+	
+	// Initialize the device extension
+	Context->ImageMounted = FALSE;
+	Context->ImageWritten = FALSE;
+	Context->ImageSize.QuadPart = 0;
+	Context->ID = DeviceID;
+	Context->WriterInfoCount = 0;
+	
+	// Mount the image
+	NameBufferSize = (Parameters->ImageNameLength + 1) * sizeof(WCHAR);
+	NameBuffer = ExAllocatePoolWithTag(PagedPool, NameBufferSize, GHOST_PORT_TAG);
+	RtlZeroMemory(NameBuffer, NameBufferSize);
+	RtlCopyMemory(NameBuffer, Parameters->ImageName, Parameters->ImageNameLength * sizeof(WCHAR));
+	RtlInitUnicodeString(&ImageName, NameBuffer);
+	
+	KdPrint((__FUNCTION__": Using image %wZ\n", &ImageName));
+	status = GhostFileIoMountImage(Context, &ImageName, &Parameters->ImageSize);
+	if (!NT_SUCCESS(status)) {
+		KdPrint((__FUNCTION__": Mount failed (0x%lx)\n", status));
+		ExFreePoolWithTag(NameBuffer, GHOST_PORT_TAG);
+		ExFreePoolWithTag(PortExtension->MountParameters[DeviceID], GHOST_PORT_TAG);
+		PortExtension->MountParameters[DeviceID] = NULL;
+		PortExtension->DriveStates[DeviceID] = GhostDriveDisabled;
+		return FALSE;
+	}
+	
+	// Clean up
+	ExFreePoolWithTag(NameBuffer, GHOST_PORT_TAG);
+	ExFreePoolWithTag(PortExtension->MountParameters[DeviceID], GHOST_PORT_TAG);
+	PortExtension->MountParameters[DeviceID] = NULL;
+	
+	// Finish initialization
+	PortExtension->DriveStates[DeviceID] = GhostDriveEnabled;
+	return TRUE;
+}
+
+
 /*
  * This is the routine that handles I/O for the bus and all its children.
  *
@@ -194,6 +277,7 @@ BOOLEAN GhostHwStorStartIo(
   IN PSCSI_REQUEST_BLOCK Srb
 )
 {
+	PGHOST_PORT_EXTENSION PortExtension = DeviceExtension;
 	UCHAR SrbStatus = SRB_STATUS_INVALID_REQUEST;
 	
 	// Find out which function we are supposed to execute
@@ -202,17 +286,29 @@ BOOLEAN GhostHwStorStartIo(
 		// (see SCSI Primary Commands - 4 (SPC-4))
 		case SRB_FUNCTION_EXECUTE_SCSI: {
 			PCDB Cdb = (PCDB)Srb->Cdb;
+			PGHOST_DRIVE_PDO_CONTEXT Context;
 			
-			// We only support a single bus and one logical unit per target
-			if (Srb->PathId != 0 || Srb->Lun != 0) {
+			// Is the device valid?
+			Context = StorPortGetLogicalUnit(DeviceExtension, Srb->PathId, Srb->TargetId, Srb->Lun);
+			if (Context == NULL) {
 				KdPrint((__FUNCTION__": Unknown bus or logical unit\n"));
 				SrbStatus = SRB_STATUS_NO_DEVICE;
 				break;
 			}
 			
+			// Initialize the device if necessary
+			if (PortExtension->DriveStates[Srb->TargetId] == GhostDriveInitializing) {
+				if (!InitializeDrive(PortExtension, Context, Srb->TargetId)) {
+					KdPrint((__FUNCTION__": Drive initialization failed\n"));
+					// Officially, the device never existed
+					SrbStatus = SRB_STATUS_NO_DEVICE;
+					break;
+				}
+			}
+			
 			// Is the device online?
-			if (Srb->TargetId != 7) {
-				KdPrint((__FUNCTION__": Device is offline\n"));
+			if (PortExtension->DriveStates[Srb->TargetId] != GhostDriveEnabled) {
+				KdPrint((__FUNCTION__": Device %d is offline\n", Srb->TargetId));
 				SrbStatus = SRB_STATUS_NO_DEVICE;
 				break;
 			}
@@ -296,7 +392,7 @@ BOOLEAN GhostHwStorStartIo(
 				case SCSIOP_READ_CAPACITY: {	// 0x25
 					PREAD_CAPACITY_DATA Capacity;
 					ULONG BytesPerBlock = GHOST_BLOCK_SIZE;
-					ULONG BlockCount = 200 * 1024 * 1024 / GHOST_BLOCK_SIZE;
+					ULONG BlockCount;
 					
 					KdPrint((__FUNCTION__": Reading capacity\n"));
 					
@@ -305,7 +401,15 @@ BOOLEAN GhostHwStorStartIo(
 						break;
 					}
 					
+					if (!Context->ImageMounted) {
+						KdPrint((__FUNCTION__": No image mounted\n"));
+						SrbStatus = SRB_STATUS_PENDING;
+						break;
+					}
+					
 					Capacity = (PREAD_CAPACITY_DATA)Srb->DataBuffer;
+					BlockCount = (ULONG)Context->ImageSize.QuadPart / GHOST_BLOCK_SIZE;
+					KdPrint((__FUNCTION__": Reporting %d blocks\n", BlockCount));
 					REVERSE_BYTES(&Capacity->LogicalBlockAddress, &BlockCount);
 					REVERSE_BYTES(&Capacity->BytesPerBlock, &BytesPerBlock);
 					
@@ -313,39 +417,20 @@ BOOLEAN GhostHwStorStartIo(
 					break;
 				}
 				
-				case SCSIOP_READ: {	// 0x28
-					ULONG BlockOffset;
-					USHORT BlockCount;
-					PVOID OutBuffer;
-					ULONG ByteLength;
-					
-					REVERSE_BYTES(&BlockOffset, &Cdb->CDB10.LogicalBlockByte0);
-					REVERSE_BYTES_SHORT(&BlockCount, &Cdb->CDB10.TransferBlocksMsb);
-					
-					KdPrint((__FUNCTION__": Reading %d blocks from offset %d, TODO\n", BlockCount, BlockOffset));
-					
-					ByteLength = BlockCount * GHOST_BLOCK_SIZE;
-					if (Srb->DataTransferLength < ByteLength) {
-						KdPrint((__FUNCTION__": Buffer too small\n"));
-						SrbStatus = SRB_STATUS_ERROR;
-						break;
-					}
-					
-					if (!NT_SUCCESS(StorPortGetSystemAddress(DeviceExtension, Srb, &OutBuffer))) {
-						KdPrint((__FUNCTION__": No system address\n"));
-						SrbStatus = SRB_STATUS_ERROR;
-						break;
-					}
-					
-					RtlZeroMemory(OutBuffer, Srb->DataTransferLength);
-					Srb->DataTransferLength = ByteLength;
-					SrbStatus = SRB_STATUS_SUCCESS;
-					break;
-				}
-				
+				case SCSIOP_READ:	// 0x28
 				case SCSIOP_WRITE: {	// 0x2a
-					KdPrint((__FUNCTION__": Write from PID %d\n", PsGetCurrentProcessId()));
-					break;
+					PIO_WORK_ITEM WorkItem;
+					
+					//
+					// We can't do file I/O at the current IRQL, so pass the SRB on to the I/O thread
+					//
+					KdPrint((__FUNCTION__": Enqueuing work item\n"));
+					WorkItem = ExAllocatePoolWithTag(NonPagedPool, sizeof(IO_WORK_ITEM), GHOST_PORT_TAG);
+					WorkItem->Srb = Srb;
+					WorkItem->DriveContext = Context;
+					ExInterlockedInsertTailList(&PortExtension->IoWorkItems, &WorkItem->ListNode, &PortExtension->IoWorkItemsLock);
+					KeSetEvent(&PortExtension->IoWorkAvailable, IO_NO_INCREMENT, FALSE);
+					return TRUE;
 				}
 				
 				// We don't support this...
@@ -406,7 +491,7 @@ SCSI_ADAPTER_CONTROL_STATUS GhostHwStorAdapterControl(
   IN  PVOID Parameters
 )
 {
-	UNREFERENCED_PARAMETER(DeviceExtension);
+	PGHOST_PORT_EXTENSION PortExtension = (PGHOST_PORT_EXTENSION)DeviceExtension;
 	
 	// What are we supposed to do?
 	switch (ControlType) {
@@ -427,6 +512,16 @@ SCSI_ADAPTER_CONTROL_STATUS GhostHwStorAdapterControl(
 	
 		case ScsiStopAdapter:
 			KdPrint((__FUNCTION__": Stopping the adapter\n"));
+			
+			// Terminate the I/O thread
+			KeSetEvent(&PortExtension->IoThreadTerminate, IO_NO_INCREMENT, FALSE);
+			if (!NT_SUCCESS(KeWaitForSingleObject(PortExtension->IoThread, Executive, KernelMode, FALSE, NULL))) {
+				KdPrint((__FUNCTION__": Unable to terminate the I/O thread\n"));
+			}
+			KdPrint((__FUNCTION__": Terminated\n"));
+
+			ObDereferenceObject(PortExtension->IoThread);
+			
 			break;
 		
 		case ScsiRestartAdapter:
@@ -455,6 +550,7 @@ VOID GhostHwStorProcessServiceRequest(
 	PIRP ServiceRequest = (PIRP)Irp;
 	PIO_STACK_LOCATION StackLocation;
 	PREQUEST_PARAMETERS Parameters;
+	PGHOST_PORT_EXTENSION PortExtension = DeviceExtension;
 	
 	KdPrint((__FUNCTION__": Processing service request\n"));
 	
@@ -501,25 +597,18 @@ VOID GhostHwStorProcessServiceRequest(
 	// Perform the requested action
 	switch (Parameters->Opcode) {
 		case OpcodeEnable: {
-			PGHOST_DRIVE_PDO_CONTEXT Context;
-			SIZE_T NameBufferSize;
-			PVOID NameBuffer;
-			UNICODE_STRING ImageName;
+			PREQUEST_PARAMETERS ParamCopy;
 			
 			KdPrint((__FUNCTION__": Enabling a device\n"));
 			
-			// Get the device extension
-			Context = StorPortGetLogicalUnit(DeviceExtension, 0, Parameters->DeviceID, 0);
-			if (Context == NULL) {
-				KdPrint((__FUNCTION__": Invalid device ID (%d)\n", Parameters->DeviceID));
+			// Make sure that the particular device is offline
+			if (PortExtension->DriveStates[Parameters->DeviceID] != GhostDriveDisabled) {
+				KdPrint((__FUNCTION__": Already enabled\n"));
 				ServiceRequest->IoStatus.Status = STATUS_UNSUCCESSFUL;
 				goto Completion;
 			}
-			
-			// Make sure that the particular device is offline
-			// TODO
-			
-			// Check the image file name
+
+			// Check the size of the data structure
 			if ((Parameters->ImageNameLength * sizeof(WCHAR) + sizeof(REQUEST_PARAMETERS) - sizeof(WCHAR))
 				> StackLocation->Parameters.DeviceIoControl.InputBufferLength)
 			{
@@ -528,23 +617,14 @@ VOID GhostHwStorProcessServiceRequest(
 				goto Completion;
 			}
 			
-			// Copy the image name to the device extension
-			NameBufferSize = (Parameters->ImageNameLength + 1) * sizeof(WCHAR);
-			NameBuffer = ExAllocatePoolWithTag(PagedPool, NameBufferSize, GHOST_PORT_TAG);
-			RtlZeroMemory(NameBuffer, NameBufferSize);
-			RtlCopyMemory(NameBuffer, Parameters->ImageName, Parameters->ImageNameLength * sizeof(WCHAR));
-			RtlInitUnicodeString(&ImageName, NameBuffer);
+			// Copy the parameters to a temporary location
+			ParamCopy = ExAllocatePoolWithTag(NonPagedPool, StackLocation->Parameters.DeviceIoControl.InputBufferLength, GHOST_PORT_TAG);
+			RtlCopyMemory(ParamCopy, ServiceRequest->AssociatedIrp.SystemBuffer, StackLocation->Parameters.DeviceIoControl.InputBufferLength);
+			PortExtension->MountParameters[Parameters->DeviceID] = ParamCopy;
 			
-			KdPrint((__FUNCTION__": Using image %wZ\n", &ImageName));
-			status = GhostFileIoMountImage(Context, &ImageName, &Parameters->ImageSize);
-			if (!NT_SUCCESS(status)) {
-				KdPrint((__FUNCTION__": Mount failed (0x%lx)\n", status));
-				ExFreePoolWithTag(NameBuffer, GHOST_PORT_TAG);
-				ServiceRequest->IoStatus.Status = STATUS_INTERNAL_ERROR;
-				goto Completion;
-			}
-			
-			ExFreePoolWithTag(NameBuffer, GHOST_PORT_TAG);
+			// Set the device online
+			PortExtension->DriveStates[Parameters->DeviceID] = GhostDriveInitializing;
+			StorPortNotification(BusChangeDetected, DeviceExtension, 0);
 			break;
 		}
 		
@@ -561,6 +641,13 @@ VOID GhostHwStorProcessServiceRequest(
 				goto Completion;
 			}
 			
+			// Make sure that the device is online
+			if (PortExtension->DriveStates[Parameters->DeviceID] != GhostDriveEnabled) {
+				KdPrint((__FUNCTION__": Device is not enabled\n"));
+				ServiceRequest->IoStatus.Status = STATUS_UNSUCCESSFUL;
+				goto Completion;
+			}
+			
 			status = GhostFileIoUmountImage(Context);
 			if (!NT_SUCCESS(status)) {
 				KdPrint((__FUNCTION__": Umount failed (0x%lx)\n", status));
@@ -568,6 +655,9 @@ VOID GhostHwStorProcessServiceRequest(
 				goto Completion;
 			}
 			
+			// Set the device offline
+			PortExtension->DriveStates[Parameters->DeviceID] = GhostDriveDisabled;
+			StorPortNotification(BusChangeDetected, DeviceExtension, 0);
 			break;
 		}
 		
