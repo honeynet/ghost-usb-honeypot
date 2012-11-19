@@ -125,17 +125,21 @@ UCHAR ProcessIoWorkItem(PGHOST_PORT_EXTENSION PortExtension, PIO_WORK_ITEM WorkI
 		return SRB_STATUS_ERROR;
 	}
 	
-	RtlZeroMemory(Buffer, WorkItem->Srb->DataTransferLength);
 	ByteOffset.QuadPart = BlockOffset * GHOST_BLOCK_SIZE;
-	// Read or write?
-	status = (Cdb->CDB6GENERIC.OperationCode == SCSIOP_READ) ?
-		GhostFileIoRead(Context, Buffer, ByteOffset, ByteLength) : GhostFileIoWrite(Context, Buffer, ByteOffset, ByteLength);
+	
+	if (Cdb->CDB6GENERIC.OperationCode == SCSIOP_READ) {
+		RtlZeroMemory(Buffer, WorkItem->Srb->DataTransferLength);
+		status = GhostFileIoRead(Context, Buffer, ByteOffset, ByteLength);
+	}
+	else {
+		status = GhostFileIoWrite(Context, Buffer, ByteOffset, ByteLength);
+	}
+	
 	if (!NT_SUCCESS(status)) {
 		KdPrint((__FUNCTION__": I/O failed (0x%lx)\n", status));
 		return SRB_STATUS_ERROR;
 	}
 	
-	WorkItem->Srb->DataTransferLength = ByteLength;
 	return SRB_STATUS_SUCCESS;
 }
 

@@ -346,7 +346,7 @@ BOOLEAN GhostHwStorStartIo(
 				case SCSIOP_READ_CAPACITY: {	// 0x25
 					PREAD_CAPACITY_DATA Capacity;
 					ULONG BytesPerBlock = GHOST_BLOCK_SIZE;
-					ULONG BlockCount;
+					ULONG MaxBlock;
 					
 					KdPrint((__FUNCTION__": Reading capacity\n"));
 					
@@ -362,9 +362,12 @@ BOOLEAN GhostHwStorStartIo(
 					}
 					
 					Capacity = (PREAD_CAPACITY_DATA)Srb->DataBuffer;
-					BlockCount = (ULONG)Context->ImageSize.QuadPart / GHOST_BLOCK_SIZE;
-					KdPrint((__FUNCTION__": Reporting %d blocks\n", BlockCount));
-					REVERSE_BYTES(&Capacity->LogicalBlockAddress, &BlockCount);
+					//
+					// Caution: The command queries the block address of the last block,
+					// which is one less than the total number of blocks!
+					//
+					MaxBlock = (ULONG)Context->ImageSize.QuadPart / GHOST_BLOCK_SIZE - 1;
+					REVERSE_BYTES(&Capacity->LogicalBlockAddress, &MaxBlock);
 					REVERSE_BYTES(&Capacity->BytesPerBlock, &BytesPerBlock);
 					
 					SrbStatus = SRB_STATUS_SUCCESS;
@@ -406,8 +409,28 @@ BOOLEAN GhostHwStorStartIo(
 			PSCSI_PNP_REQUEST_BLOCK Request = (PSCSI_PNP_REQUEST_BLOCK)Srb;
 			KdPrint((__FUNCTION__": PNP request 0x%x\n", Request->PnPAction));
 			
-			// These requests are merely informative, we just complete them
-			SrbStatus = SRB_STATUS_SUCCESS;
+			switch (Request->PnPAction) {
+				case StorQueryCapabilities: {
+					PSTOR_DEVICE_CAPABILITIES Capabilities = (PSTOR_DEVICE_CAPABILITIES)Request->DataBuffer;
+					
+					if (Request->DataTransferLength < sizeof(STOR_DEVICE_CAPABILITIES)) {
+						KdPrint((__FUNCTION__": Buffer too small\n"));
+						SrbStatus = SRB_STATUS_ERROR;
+						break;
+					}
+					
+					Capabilities->LockSupported = FALSE;
+					Capabilities->Removable = TRUE;
+					Capabilities->EjectSupported = FALSE;
+					
+					SrbStatus = SRB_STATUS_SUCCESS;
+					break;
+				}
+				
+				default:
+					SrbStatus = SRB_STATUS_SUCCESS;
+			}
+			
 			break;
 		}
 
@@ -458,7 +481,7 @@ SCSI_ADAPTER_CONTROL_STATUS GhostHwStorAdapterControl(
 		
 			// We only support "Stop" and "Restart", which are mandatory
 			for (i = 0; i < SupportedControl->MaxControlType - 1; i++) {
-				if (i == ScsiStopAdapter || i == ScsiRestartAdapter)
+				if (i == ScsiStopAdapter)// || i == ScsiRestartAdapter)
 					SupportedControl->SupportedTypeList[i] = TRUE;
 			}
 			break;
