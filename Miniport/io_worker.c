@@ -29,12 +29,6 @@
 #include "file_io.h"
 
 
-VOID EnqueueWorkItem(PGHOST_PORT_EXTENSION PortExtension, PIO_WORK_ITEM WorkItem) {
-	ExInterlockedInsertTailList(&PortExtension->IoWorkItems, &WorkItem->ListNode, &PortExtension->IoWorkItemsLock);
-	KeSetEvent(&PortExtension->IoWorkAvailable, IO_NO_INCREMENT, FALSE);
-}
-
-
 BOOLEAN InitializeDrive(PGHOST_PORT_EXTENSION PortExtension, PGHOST_DRIVE_PDO_CONTEXT Context, ULONG DeviceID) {
 	NTSTATUS status;
 	SIZE_T NameBufferSize;
@@ -52,12 +46,7 @@ BOOLEAN InitializeDrive(PGHOST_PORT_EXTENSION PortExtension, PGHOST_DRIVE_PDO_CO
 		return FALSE;
 	}
 	
-	// Initialize the device extension
-	Context->ImageMounted = FALSE;
-	Context->ImageWritten = FALSE;
-	Context->ImageSize.QuadPart = 0;
-	Context->ID = DeviceID;
-	Context->WriterInfoCount = 0;
+	InitGhostDrivePdoContext(Context, DeviceID);
 	
 	// Mount the image
 	NameBufferSize = (Parameters->ImageNameLength + 1) * sizeof(WCHAR);
@@ -73,7 +62,8 @@ BOOLEAN InitializeDrive(PGHOST_PORT_EXTENSION PortExtension, PGHOST_DRIVE_PDO_CO
 		ExFreePoolWithTag(NameBuffer, GHOST_PORT_TAG);
 		ExFreePoolWithTag(PortExtension->MountParameters[DeviceID], GHOST_PORT_TAG);
 		PortExtension->MountParameters[DeviceID] = NULL;
-		PortExtension->DriveStates[DeviceID] = GhostDriveDisabled;
+		SetDriveState(PortExtension, DeviceID, GhostDriveDisabled, FALSE);
+		StorPortNotification(BusChangeDetected, PortExtension, 0);
 		return FALSE;
 	}
 	
@@ -83,8 +73,26 @@ BOOLEAN InitializeDrive(PGHOST_PORT_EXTENSION PortExtension, PGHOST_DRIVE_PDO_CO
 	PortExtension->MountParameters[DeviceID] = NULL;
 	
 	// Finish initialization
-	PortExtension->DriveStates[DeviceID] = GhostDriveEnabled;
+	SetDriveState(PortExtension, DeviceID, GhostDriveEnabled, FALSE);
 	return TRUE;
+}
+
+
+VOID RemoveDrive(PGHOST_PORT_EXTENSION PortExtension, PGHOST_DRIVE_PDO_CONTEXT Context) {
+	NTSTATUS status;
+	ULONG DeviceID = Context->ID;
+	
+	KdPrint((__FUNCTION__": Removing device %d\n", Context->ID));
+	
+	status = GhostFileIoUmountImage(Context);
+	if (!NT_SUCCESS(status)) {
+		KdPrint((__FUNCTION__": Umount failed (0x%lx)\n", status));
+		SetDriveState(PortExtension, Context->ID, GhostDriveEnabled, FALSE);
+		return;
+	}
+	DeleteGhostDrivePdoContext(Context);
+	SetDriveState(PortExtension, DeviceID, GhostDriveDisabled, FALSE);
+	StorPortNotification(BusChangeDetected, PortExtension, 0);
 }
 
 
@@ -186,6 +194,11 @@ VOID IoWorkerThread(PVOID ExecutionContext) {
 					KdPrint((__FUNCTION__": Device initialization failed\n"));
 				}
 				break;
+				
+			case WorkItemRemove: {
+				RemoveDrive(PortExtension, WorkItem->DriveContext);
+				break;
+			}
 		}
 		
 		ExFreePoolWithTag(WorkItem, GHOST_PORT_TAG);

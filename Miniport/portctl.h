@@ -3,10 +3,12 @@
 
 #define GHOST_MAGIC_NUMBER 0xFEEDABCD
 
+
 typedef enum {
 	OpcodeEnable,
 	OpcodeDisable
 } GHOST_PORT_OPCODE;
+
 
 typedef struct _REQUEST_PARAMETERS {
 	ULONG MagicNumber;	// always set to GHOST_MAGIC_NUMBER
@@ -16,6 +18,19 @@ typedef struct _REQUEST_PARAMETERS {
 	USHORT ImageNameLength;	// in characters
 	WCHAR ImageName[1];
 } REQUEST_PARAMETERS, *PREQUEST_PARAMETERS;
+
+
+/*
+ * This struct is returned by the writer info request, if the buffer is large enough.
+ */
+typedef struct _GHOST_DRIVE_WRITER_INFO_RESPONSE {
+	
+	HANDLE ProcessId;
+	HANDLE ThreadId;
+	USHORT ModuleNamesCount;
+	SIZE_T ModuleNameOffsets[1];
+	
+} GHOST_DRIVE_WRITER_INFO_RESPONSE, *PGHOST_DRIVE_WRITER_INFO_RESPONSE;
 
 #endif
 

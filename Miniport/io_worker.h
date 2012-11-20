@@ -28,7 +28,9 @@
 #ifndef IO_WORKER_H
 #define IO_WORKER_H
 
+#include "extensions.h"
+
 VOID IoWorkerThread(PVOID ExecutionContext);
-VOID EnqueueWorkItem(PGHOST_PORT_EXTENSION PortExtension, PIO_WORK_ITEM WorkItem);
+VOID RemoveDrive(PGHOST_PORT_EXTENSION PortExtension, PGHOST_DRIVE_PDO_CONTEXT Context);
 
 #endif

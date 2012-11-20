@@ -36,6 +36,10 @@
 #define GHOST_PORT_TAG 'oPhG'
 #define GHOST_MAX_TARGETS 10
 
+
+/*
+ * Drive extension and related functions.
+ */
 typedef struct _GHOST_DRIVE_PDO_CONTEXT {
 
 	BOOLEAN ImageMounted;
@@ -43,24 +47,32 @@ typedef struct _GHOST_DRIVE_PDO_CONTEXT {
 	HANDLE ImageFile;
 	LARGE_INTEGER ImageSize;
 	ULONG ID;
-	USHORT WriterInfoCount;
-	//PGHOST_INFO_PROCESS_DATA WriterInfo;   // paged memory
-	//WDFQUEUE WriterInfoQueue;
+	//USHORT WriterInfoCount;
+	LIST_ENTRY WriterInfoList;
+	KSPIN_LOCK WriterInfoListLock;
 
 } GHOST_DRIVE_PDO_CONTEXT, *PGHOST_DRIVE_PDO_CONTEXT;
 
+VOID InitGhostDrivePdoContext(PGHOST_DRIVE_PDO_CONTEXT Context, ULONG DeviceID);
+VOID DeleteGhostDrivePdoContext(PGHOST_DRIVE_PDO_CONTEXT Context);
 
+
+/*
+ * Bus extension and related types and functions.
+ */
 typedef enum {
 	GhostDriveEnabled,
 	GhostDriveDisabled,
 	GhostDriveInitRequired,
-	GhostDriveInitInProgress
+	GhostDriveInitInProgress,
+	GhostDriveRemovalInProgress
 } GhostDriveState;
 
 
 typedef enum {
 	WorkItemIo,
-	WorkItemInitialize
+	WorkItemInitialize,
+	WorkItemRemove
 } WorkItemType;
 
 
@@ -79,6 +91,7 @@ typedef struct _GHOST_PORT_EXTENSION {
 
 	UNICODE_STRING DeviceInterface;
 	GhostDriveState DriveStates[GHOST_MAX_TARGETS];
+	KSPIN_LOCK DriveStatesLock;	// use as queued spin lock
 	PREQUEST_PARAMETERS MountParameters[GHOST_MAX_TARGETS];	// non-paged memory
 	LIST_ENTRY IoWorkItems;
 	KSPIN_LOCK IoWorkItemsLock;
@@ -87,5 +100,10 @@ typedef struct _GHOST_PORT_EXTENSION {
 	KEVENT IoThreadTerminate;
 	
 } GHOST_PORT_EXTENSION, *PGHOST_PORT_EXTENSION;
+
+VOID InitGhostPortExtension(PGHOST_PORT_EXTENSION PortExtension);
+VOID EnqueueWorkItem(PGHOST_PORT_EXTENSION PortExtension, PIO_WORK_ITEM WorkItem);
+VOID SetDriveState(PGHOST_PORT_EXTENSION PortExtension, ULONG DeviceID, GhostDriveState State, BOOLEAN LockAcquired);
+GhostDriveState GetDriveState(PGHOST_PORT_EXTENSION PortExtension, ULONG DeviceID, BOOLEAN LockAcquired);
 
 #endif

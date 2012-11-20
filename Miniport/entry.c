@@ -32,6 +32,7 @@
 #include "extensions.h"
 #include "file_io.h"
 #include "io_worker.h"
+#include "information.h"
 #include <initguid.h>
 #include "portctl.h"
 
@@ -156,21 +157,11 @@ BOOLEAN GhostHwStorInitialize(
   IN PVOID DeviceExtension
 )
 {
-	int i;
 	PGHOST_PORT_EXTENSION PortExtension = DeviceExtension;
 	
 	KdPrint((__FUNCTION__": Initializing the bus\n"));
 	
-	// Initialize the device extension
-	for (i = 0; i < GHOST_MAX_TARGETS; i++) {
-		PortExtension->DriveStates[i] = GhostDriveDisabled;
-		PortExtension->MountParameters[i] = NULL;
-	}
-	
-	KeInitializeEvent(&PortExtension->IoWorkAvailable, SynchronizationEvent, FALSE);
-	KeInitializeEvent(&PortExtension->IoThreadTerminate, SynchronizationEvent, FALSE);
-	KeInitializeSpinLock(&PortExtension->IoWorkItemsLock);
-	InitializeListHead(&PortExtension->IoWorkItems);
+	InitGhostPortExtension(PortExtension);
 	
 	// Enable further initialization at PASSIVE_LEVEL
 	if (!StorPortEnablePassiveInitialization(DeviceExtension, GhostHwStorPassiveInitializeRoutine)) {
@@ -208,6 +199,15 @@ VOID GhostHwStorFreeAdapterResources(
 )
 {
 	PGHOST_PORT_EXTENSION PortExtension = DeviceExtension;
+	
+	// Terminate the I/O thread
+	KeSetEvent(&PortExtension->IoThreadTerminate, IO_NO_INCREMENT, FALSE);
+	if (!NT_SUCCESS(KeWaitForSingleObject(PortExtension->IoThread, Executive, KernelMode, FALSE, NULL))) {
+		KdPrint((__FUNCTION__": Unable to terminate the I/O thread\n"));
+	}
+	KdPrint((__FUNCTION__": Terminated\n"));
+
+	ObDereferenceObject(PortExtension->IoThread);
 
 	KdPrint((__FUNCTION__": Freeing resources\n"));
 	if (PortExtension->DeviceInterface.Buffer != NULL) {
@@ -237,6 +237,7 @@ BOOLEAN GhostHwStorStartIo(
 		case SRB_FUNCTION_EXECUTE_SCSI: {
 			PCDB Cdb = (PCDB)Srb->Cdb;
 			PGHOST_DRIVE_PDO_CONTEXT Context;
+			KLOCK_QUEUE_HANDLE LockHandle;
 			
 			// Is the device valid?
 			Context = StorPortGetLogicalUnit(DeviceExtension, Srb->PathId, Srb->TargetId, Srb->Lun);
@@ -247,7 +248,8 @@ BOOLEAN GhostHwStorStartIo(
 			}
 			
 			// Initialize the device if necessary
-			if (PortExtension->DriveStates[Srb->TargetId] == GhostDriveInitRequired) {
+			KeAcquireInStackQueuedSpinLock(&PortExtension->DriveStatesLock, &LockHandle);
+			if (GetDriveState(PortExtension, Srb->TargetId, TRUE) == GhostDriveInitRequired) {
 				//
 				// The device is not yet fully initialized. Unfortunately, we can't initialize it
 				// at the current IRQL, so we dispatch to the I/O worker thread. Meanwhile, we complete
@@ -257,20 +259,22 @@ BOOLEAN GhostHwStorStartIo(
 				
 				WorkItem = ExAllocatePoolWithTag(NonPagedPool, sizeof(IO_WORK_ITEM), GHOST_PORT_TAG);
 				WorkItem->Type = WorkItemInitialize;
-				WorkItem->Srb = NULL;
 				WorkItem->DriveContext = Context;
 				WorkItem->DeviceID = Srb->TargetId;
 				EnqueueWorkItem(PortExtension, WorkItem);
 				
-				PortExtension->DriveStates[Srb->TargetId] = GhostDriveInitInProgress;
+				SetDriveState(PortExtension, Srb->TargetId, GhostDriveInitInProgress, TRUE);
 			}
 			
 			// Is the device online?
-			if (PortExtension->DriveStates[Srb->TargetId] == GhostDriveDisabled) {
+			if (GetDriveState(PortExtension, Srb->TargetId, TRUE) == GhostDriveDisabled) {
+				KeReleaseInStackQueuedSpinLock(&LockHandle);
 				KdPrint((__FUNCTION__": Device %d is offline\n", Srb->TargetId));
 				SrbStatus = SRB_STATUS_NO_DEVICE;
 				break;
 			}
+			
+			KeReleaseInStackQueuedSpinLock(&LockHandle);
 			
 			// Which command are we supposed to execute on the target?
 			switch (Cdb->CDB6GENERIC.OperationCode) {
@@ -355,7 +359,7 @@ BOOLEAN GhostHwStorStartIo(
 						break;
 					}
 					
-					if (PortExtension->DriveStates[Srb->TargetId] != GhostDriveEnabled) {
+					if (GetDriveState(PortExtension, Srb->TargetId, FALSE) != GhostDriveEnabled) {
 						KdPrint((__FUNCTION__": Device not ready\n"));
 						SrbStatus = SRB_STATUS_PENDING;
 						break;
@@ -378,6 +382,19 @@ BOOLEAN GhostHwStorStartIo(
 				case SCSIOP_WRITE: {	// 0x2a
 					PIO_WORK_ITEM WorkItem;
 					
+					// If this is a write request, collect information about the issuer
+					/*if (Cdb->CDB6GENERIC.OperationCode == SCSIOP_WRITE) {
+						PGHOST_INFO_PROCESS_DATA ProcessData;
+						
+						// Check if we know this process already TODO
+						
+						ProcessData = GhostInfoCollectProcessData();
+						if (ProcessData != NULL) {
+							// TODO: use own spin lock
+							ExInterlockedInsertTailList(&Context->WriterInfoList, &ProcessData->ListNode, &Context->WriterInfoListLock);
+						}
+					}*/
+					
 					//
 					// We can't do file I/O at the current IRQL, so pass the SRB on to the I/O thread
 					//
@@ -387,6 +404,7 @@ BOOLEAN GhostHwStorStartIo(
 					WorkItem->Srb = Srb;
 					WorkItem->DriveContext = Context;
 					EnqueueWorkItem(PortExtension, WorkItem);
+					
 					return TRUE;
 				}
 				
@@ -422,6 +440,7 @@ BOOLEAN GhostHwStorStartIo(
 					Capabilities->LockSupported = FALSE;
 					Capabilities->Removable = TRUE;
 					Capabilities->EjectSupported = FALSE;
+					Capabilities->SurpriseRemovalOK = FALSE;
 					
 					SrbStatus = SRB_STATUS_SUCCESS;
 					break;
@@ -479,27 +498,65 @@ SCSI_ADAPTER_CONTROL_STATUS GhostHwStorAdapterControl(
 			
 			KdPrint((__FUNCTION__": Query supported control types\n"));
 		
-			// We only support "Stop" and "Restart", which are mandatory
+			// We only support "Stop" and "Restart"
 			for (i = 0; i < SupportedControl->MaxControlType - 1; i++) {
-				if (i == ScsiStopAdapter)// || i == ScsiRestartAdapter)
+				if (i == ScsiStopAdapter || i == ScsiRestartAdapter)
 					SupportedControl->SupportedTypeList[i] = TRUE;
 			}
 			break;
 		}
 	
-		case ScsiStopAdapter:
+		case ScsiStopAdapter: {
+			UCHAR i;
+			
 			KdPrint((__FUNCTION__": Stopping the adapter\n"));
-			
-			// Terminate the I/O thread
-			KeSetEvent(&PortExtension->IoThreadTerminate, IO_NO_INCREMENT, FALSE);
-			if (!NT_SUCCESS(KeWaitForSingleObject(PortExtension->IoThread, Executive, KernelMode, FALSE, NULL))) {
-				KdPrint((__FUNCTION__": Unable to terminate the I/O thread\n"));
-			}
-			KdPrint((__FUNCTION__": Terminated\n"));
 
-			ObDereferenceObject(PortExtension->IoThread);
-			
+			// Remove all devices
+			for (i = 0; i < GHOST_MAX_TARGETS; i++) {
+				KLOCK_QUEUE_HANDLE LockHandle;
+				PGHOST_DRIVE_PDO_CONTEXT Context;
+
+				Context = StorPortGetLogicalUnit(PortExtension, 0, i, 0);
+				if (Context == NULL) {
+					continue;
+				}
+
+				KeAcquireInStackQueuedSpinLock(&PortExtension->DriveStatesLock, &LockHandle);
+
+				switch (GetDriveState(PortExtension, i, TRUE)) {
+					case GhostDriveInitInProgress:
+					case GhostDriveEnabled: {
+						PIO_WORK_ITEM WorkItem;
+
+						// Tell the worker thread to remove the device
+						WorkItem = ExAllocatePoolWithTag(NonPagedPool, sizeof(IO_WORK_ITEM), GHOST_PORT_TAG);
+						WorkItem->Type = WorkItemRemove;
+						WorkItem->DeviceID = Context->ID;
+						WorkItem->DriveContext = Context;
+						EnqueueWorkItem(PortExtension, WorkItem);
+
+						break;
+					}
+
+					case GhostDriveInitRequired:
+						// Abort the initialization
+						ExFreePoolWithTag(PortExtension->MountParameters[i], GHOST_PORT_TAG);
+						SetDriveState(PortExtension, i, GhostDriveDisabled, TRUE);
+						break;
+
+					case GhostDriveRemovalInProgress:
+						// We expect the worker thread to finish removal in time.
+						break;
+
+					case GhostDriveDisabled:
+						// Nothing to do.
+						break;
+				}
+
+				KeReleaseInStackQueuedSpinLock(&LockHandle);
+			}
 			break;
+		}
 		
 		case ScsiRestartAdapter:
 			KdPrint((__FUNCTION__": Restarting the adapter\n"));
@@ -575,11 +632,14 @@ VOID GhostHwStorProcessServiceRequest(
 	switch (Parameters->Opcode) {
 		case OpcodeEnable: {
 			PREQUEST_PARAMETERS ParamCopy;
+			KLOCK_QUEUE_HANDLE LockHandle;
 			
 			KdPrint((__FUNCTION__": Enabling a device\n"));
 			
 			// Make sure that the particular device is offline
-			if (PortExtension->DriveStates[Parameters->DeviceID] != GhostDriveDisabled) {
+			KeAcquireInStackQueuedSpinLock(&PortExtension->DriveStatesLock, &LockHandle);
+			if (GetDriveState(PortExtension, Parameters->DeviceID, TRUE) != GhostDriveDisabled) {
+				KeReleaseInStackQueuedSpinLock(&LockHandle);
 				KdPrint((__FUNCTION__": Already enabled\n"));
 				ServiceRequest->IoStatus.Status = STATUS_UNSUCCESSFUL;
 				goto Completion;
@@ -589,6 +649,7 @@ VOID GhostHwStorProcessServiceRequest(
 			if ((Parameters->ImageNameLength * sizeof(WCHAR) + sizeof(REQUEST_PARAMETERS) - sizeof(WCHAR))
 				> StackLocation->Parameters.DeviceIoControl.InputBufferLength)
 			{
+				KeReleaseInStackQueuedSpinLock(&LockHandle);
 				KdPrint((__FUNCTION__": Image name length incorrect\n"));
 				ServiceRequest->IoStatus.Status = STATUS_UNSUCCESSFUL;
 				goto Completion;
@@ -600,7 +661,8 @@ VOID GhostHwStorProcessServiceRequest(
 			PortExtension->MountParameters[Parameters->DeviceID] = ParamCopy;
 			
 			// Set the device online
-			PortExtension->DriveStates[Parameters->DeviceID] = GhostDriveInitRequired;
+			SetDriveState(PortExtension, Parameters->DeviceID, GhostDriveInitRequired, TRUE);
+			KeReleaseInStackQueuedSpinLock(&LockHandle);
 			StorPortNotification(BusChangeDetected, DeviceExtension, 0);
 			
 			//
@@ -613,6 +675,8 @@ VOID GhostHwStorProcessServiceRequest(
 		
 		case OpcodeDisable: {
 			PGHOST_DRIVE_PDO_CONTEXT Context;
+			KLOCK_QUEUE_HANDLE LockHandle;
+			PIO_WORK_ITEM WorkItem;
 			
 			KdPrint((__FUNCTION__": Disabling a device\n"));
 			
@@ -625,22 +689,24 @@ VOID GhostHwStorProcessServiceRequest(
 			}
 			
 			// Make sure that the device is online
-			if (PortExtension->DriveStates[Parameters->DeviceID] != GhostDriveEnabled) {
+			KeAcquireInStackQueuedSpinLock(&PortExtension->DriveStatesLock, &LockHandle);
+			if (GetDriveState(PortExtension, Parameters->DeviceID, TRUE) != GhostDriveEnabled) {
+				KeReleaseInStackQueuedSpinLock(&LockHandle);
 				KdPrint((__FUNCTION__": Device is not enabled\n"));
 				ServiceRequest->IoStatus.Status = STATUS_UNSUCCESSFUL;
 				goto Completion;
 			}
 			
-			status = GhostFileIoUmountImage(Context);
-			if (!NT_SUCCESS(status)) {
-				KdPrint((__FUNCTION__": Umount failed (0x%lx)\n", status));
-				ServiceRequest->IoStatus.Status = STATUS_INTERNAL_ERROR;
-				goto Completion;
-			}
-			
 			// Set the device offline
-			PortExtension->DriveStates[Parameters->DeviceID] = GhostDriveDisabled;
-			StorPortNotification(BusChangeDetected, DeviceExtension, 0);
+			SetDriveState(PortExtension, Parameters->DeviceID, GhostDriveRemovalInProgress, TRUE);
+			KeReleaseInStackQueuedSpinLock(&LockHandle);
+			
+			WorkItem = ExAllocatePoolWithTag(NonPagedPool, sizeof(IO_WORK_ITEM), GHOST_PORT_TAG);
+			WorkItem->Type = WorkItemRemove;
+			WorkItem->DeviceID = Context->ID;
+			WorkItem->DriveContext = Context;
+			EnqueueWorkItem(PortExtension, WorkItem);
+			
 			break;
 		}
 		
