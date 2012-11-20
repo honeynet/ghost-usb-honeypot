@@ -34,7 +34,7 @@ VOID InitGhostDrivePdoContext(PGHOST_DRIVE_PDO_CONTEXT Context, ULONG DeviceID) 
 	Context->ImageWritten = FALSE;
 	Context->ImageSize.QuadPart = 0;
 	Context->ID = DeviceID;
-	//Context->WriterInfoCount = 0;
+	Context->WriterInfoCount = 0;
 	InitializeListHead(&Context->WriterInfoList);
 	KeInitializeSpinLock(&Context->WriterInfoListLock);
 }
@@ -99,4 +99,38 @@ GhostDriveState GetDriveState(PGHOST_PORT_EXTENSION PortExtension, ULONG DeviceI
 	}
 	
 	return State;
+}
+
+
+BOOLEAN IsProcessKnown(PGHOST_DRIVE_PDO_CONTEXT Context, HANDLE ProcessID) {
+	KLOCK_QUEUE_HANDLE LockHandle;
+	PLIST_ENTRY CurrentNode;
+	PGHOST_INFO_PROCESS_DATA ProcessInfo;
+	BOOLEAN Known = FALSE;
+	
+	KeAcquireInStackQueuedSpinLock(&Context->WriterInfoListLock, &LockHandle);
+	
+	// Iterate through all our process info structs
+	CurrentNode = Context->WriterInfoList.Flink;
+	while (CurrentNode != &Context->WriterInfoList) {
+		ProcessInfo = CONTAINING_RECORD(CurrentNode, GHOST_INFO_PROCESS_DATA, ListNode);
+		if (ProcessInfo->ProcessId == ProcessID) {
+			Known = TRUE;
+			break;
+		}
+		CurrentNode = CurrentNode->Flink;
+	}
+	
+	KeReleaseInStackQueuedSpinLock(&LockHandle);
+	return Known;
+}
+
+
+VOID AddProcessInfo(PGHOST_DRIVE_PDO_CONTEXT Context, PGHOST_INFO_PROCESS_DATA ProcessInfo) {
+	KLOCK_QUEUE_HANDLE LockHandle;
+	
+	KeAcquireInStackQueuedSpinLock(&Context->WriterInfoListLock, &LockHandle);
+	InsertHeadList(&Context->WriterInfoList, &ProcessInfo->ListNode);
+	Context->WriterInfoCount++;
+	KeReleaseInStackQueuedSpinLock(&LockHandle);
 }

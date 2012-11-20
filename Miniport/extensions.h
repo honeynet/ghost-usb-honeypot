@@ -32,6 +32,7 @@
 #include <storport.h>
 
 #include "portctl.h"
+#include "information.h"
 
 #define GHOST_PORT_TAG 'oPhG'
 #define GHOST_MAX_TARGETS 10
@@ -47,14 +48,16 @@ typedef struct _GHOST_DRIVE_PDO_CONTEXT {
 	HANDLE ImageFile;
 	LARGE_INTEGER ImageSize;
 	ULONG ID;
-	//USHORT WriterInfoCount;
+	USHORT WriterInfoCount;
 	LIST_ENTRY WriterInfoList;
-	KSPIN_LOCK WriterInfoListLock;
+	KSPIN_LOCK WriterInfoListLock;	// use as queued spin lock
 
 } GHOST_DRIVE_PDO_CONTEXT, *PGHOST_DRIVE_PDO_CONTEXT;
 
 VOID InitGhostDrivePdoContext(PGHOST_DRIVE_PDO_CONTEXT Context, ULONG DeviceID);
 VOID DeleteGhostDrivePdoContext(PGHOST_DRIVE_PDO_CONTEXT Context);
+BOOLEAN IsProcessKnown(PGHOST_DRIVE_PDO_CONTEXT Context, HANDLE ProcessID);
+VOID AddProcessInfo(PGHOST_DRIVE_PDO_CONTEXT Context, PGHOST_INFO_PROCESS_DATA ProcessInfo);
 
 
 /*

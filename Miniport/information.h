@@ -31,6 +31,8 @@
 
 #include <ntddk.h>
 
+#define GHOST_MAX_PROCESS_INFO 32
+
 
 typedef struct _GHOST_INFO_STRING_LIST {
 	UNICODE_STRING String;

@@ -383,17 +383,19 @@ BOOLEAN GhostHwStorStartIo(
 					PIO_WORK_ITEM WorkItem;
 					
 					// If this is a write request, collect information about the issuer
-					/*if (Cdb->CDB6GENERIC.OperationCode == SCSIOP_WRITE) {
+					if (Cdb->CDB6GENERIC.OperationCode == SCSIOP_WRITE) {
 						PGHOST_INFO_PROCESS_DATA ProcessData;
+						HANDLE CurrentPID = PsGetCurrentProcessId();
 						
-						// Check if we know this process already TODO
-						
-						ProcessData = GhostInfoCollectProcessData();
-						if (ProcessData != NULL) {
-							// TODO: use own spin lock
-							ExInterlockedInsertTailList(&Context->WriterInfoList, &ProcessData->ListNode, &Context->WriterInfoListLock);
+						// Check if we know this process already, have reached the maximum number of process info structs
+						// or are called by SYSTEM
+						if (CurrentPID != 4 && !IsProcessKnown(Context, CurrentPID) && Context->WriterInfoCount < GHOST_MAX_PROCESS_INFO) {
+							ProcessData = GhostInfoCollectProcessData();
+							if (ProcessData != NULL) {
+								AddProcessInfo(Context, ProcessData);
+							}
 						}
-					}*/
+					}
 					
 					//
 					// We can't do file I/O at the current IRQL, so pass the SRB on to the I/O thread
