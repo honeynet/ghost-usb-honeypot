@@ -2,11 +2,13 @@
 #define PORTCTL_H
 
 #define GHOST_MAGIC_NUMBER 0xFEEDABCD
+#define GHOST_MAX_TARGETS 10
 
 
 typedef enum {
 	OpcodeEnable,
-	OpcodeDisable
+	OpcodeDisable,
+	OpcodeGetWriterInfo
 } GHOST_PORT_OPCODE;
 
 
@@ -14,9 +16,18 @@ typedef struct _REQUEST_PARAMETERS {
 	ULONG MagicNumber;	// always set to GHOST_MAGIC_NUMBER
 	GHOST_PORT_OPCODE Opcode;
 	UCHAR DeviceID;
-	LARGE_INTEGER ImageSize;	// in bytes
-	USHORT ImageNameLength;	// in characters
-	WCHAR ImageName[1];
+	union {
+		struct {
+			USHORT WriterIndex;
+			BOOLEAN BlockingCall;
+		} WriterInfoParameters;	// required for OpcodeGetWriterInfo
+		
+		struct {
+			LARGE_INTEGER ImageSize;	// in bytes
+			USHORT ImageNameLength;	// in characters
+			WCHAR ImageName[1];
+		} MountInfo;	// required for OpcodeEnable
+	};
 } REQUEST_PARAMETERS, *PREQUEST_PARAMETERS;
 
 

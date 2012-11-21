@@ -111,14 +111,15 @@ BOOLEAN IsProcessKnown(PGHOST_DRIVE_PDO_CONTEXT Context, HANDLE ProcessID) {
 	KeAcquireInStackQueuedSpinLock(&Context->WriterInfoListLock, &LockHandle);
 	
 	// Iterate through all our process info structs
-	CurrentNode = Context->WriterInfoList.Flink;
+	// Move backward, because recent writers are likely to write again
+	CurrentNode = Context->WriterInfoList.Blink;
 	while (CurrentNode != &Context->WriterInfoList) {
 		ProcessInfo = CONTAINING_RECORD(CurrentNode, GHOST_INFO_PROCESS_DATA, ListNode);
 		if (ProcessInfo->ProcessId == ProcessID) {
 			Known = TRUE;
 			break;
 		}
-		CurrentNode = CurrentNode->Flink;
+		CurrentNode = CurrentNode->Blink;
 	}
 	
 	KeReleaseInStackQueuedSpinLock(&LockHandle);
@@ -130,7 +131,31 @@ VOID AddProcessInfo(PGHOST_DRIVE_PDO_CONTEXT Context, PGHOST_INFO_PROCESS_DATA P
 	KLOCK_QUEUE_HANDLE LockHandle;
 	
 	KeAcquireInStackQueuedSpinLock(&Context->WriterInfoListLock, &LockHandle);
-	InsertHeadList(&Context->WriterInfoList, &ProcessInfo->ListNode);
+	InsertTailList(&Context->WriterInfoList, &ProcessInfo->ListNode);
 	Context->WriterInfoCount++;
 	KeReleaseInStackQueuedSpinLock(&LockHandle);
+}
+
+
+PGHOST_INFO_PROCESS_DATA GetProcessInfo(PGHOST_DRIVE_PDO_CONTEXT Context, USHORT Index) {
+	KLOCK_QUEUE_HANDLE LockHandle;
+	PLIST_ENTRY CurrentNode;
+	USHORT i;
+	
+	KeAcquireInStackQueuedSpinLock(&Context->WriterInfoListLock, &LockHandle);
+	
+	// Check the index
+	if (Index >= Context->WriterInfoCount) {
+		KeReleaseInStackQueuedSpinLock(&LockHandle);
+		return NULL;
+	}
+	
+	// Obtain the requested entry
+	CurrentNode = Context->WriterInfoList.Flink;
+	for (i = 0; i < Index; i++) {
+		CurrentNode = CurrentNode->Flink;
+	}
+	
+	KeReleaseInStackQueuedSpinLock(&LockHandle);
+	return CONTAINING_RECORD(CurrentNode, GHOST_INFO_PROCESS_DATA, ListNode);
 }

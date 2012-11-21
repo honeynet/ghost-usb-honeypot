@@ -49,14 +49,14 @@ BOOLEAN InitializeDrive(PGHOST_PORT_EXTENSION PortExtension, PGHOST_DRIVE_PDO_CO
 	InitGhostDrivePdoContext(Context, DeviceID);
 	
 	// Mount the image
-	NameBufferSize = (Parameters->ImageNameLength + 1) * sizeof(WCHAR);
+	NameBufferSize = (Parameters->MountInfo.ImageNameLength + 1) * sizeof(WCHAR);
 	NameBuffer = ExAllocatePoolWithTag(PagedPool, NameBufferSize, GHOST_PORT_TAG);
 	RtlZeroMemory(NameBuffer, NameBufferSize);
-	RtlCopyMemory(NameBuffer, Parameters->ImageName, Parameters->ImageNameLength * sizeof(WCHAR));
+	RtlCopyMemory(NameBuffer, Parameters->MountInfo.ImageName, Parameters->MountInfo.ImageNameLength * sizeof(WCHAR));
 	RtlInitUnicodeString(&ImageName, NameBuffer);
 	
 	KdPrint((__FUNCTION__": Using image %wZ\n", &ImageName));
-	status = GhostFileIoMountImage(Context, &ImageName, &Parameters->ImageSize);
+	status = GhostFileIoMountImage(Context, &ImageName, &Parameters->MountInfo.ImageSize);
 	if (!NT_SUCCESS(status)) {
 		KdPrint((__FUNCTION__": Mount failed (0x%lx)\n", status));
 		ExFreePoolWithTag(NameBuffer, GHOST_PORT_TAG);

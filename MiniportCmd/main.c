@@ -31,7 +31,6 @@
 #include <winioctl.h>
 #include <setupapi.h>
 
-#include <ghostbus.h>
 #include <version.h>
 #include <ntddscsi.h>
 
@@ -111,20 +110,22 @@ HANDLE OpenBus() {
 
 
 PGHOST_DRIVE_WRITER_INFO_RESPONSE GetWriterInfo(HANDLE Device, USHORT Index, BOOLEAN Block, ULONG DeviceID) {
-	GHOST_DRIVE_WRITER_INFO_PARAMETERS WriterInfoParams;
+	REQUEST_PARAMETERS RequestParams;
 	BOOL result;
 	SIZE_T RequiredSize;
 	DWORD BytesReturned;
 	PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
 	
-	WriterInfoParams.DeviceID = DeviceID;
-	WriterInfoParams.Block = Block;
-	WriterInfoParams.Index = Index;
+	RequestParams.Opcode = OpcodeGetWriterInfo;
+	RequestParams.MagicNumber = GHOST_MAGIC_NUMBER;
+	RequestParams.DeviceID = (UCHAR)DeviceID;
+	RequestParams.WriterInfoParameters.BlockingCall = Block;
+	RequestParams.WriterInfoParameters.WriterIndex = Index;
 	
 	result = DeviceIoControl(Device,
-		IOCTL_GHOST_DRIVE_GET_WRITER_INFO,
-		&WriterInfoParams,
-		sizeof(GHOST_DRIVE_WRITER_INFO_PARAMETERS),
+		IOCTL_MINIPORT_PROCESS_SERVICE_IRP,
+		&RequestParams,
+		sizeof(REQUEST_PARAMETERS),
 		&RequiredSize,
 		sizeof(SIZE_T),
 		&BytesReturned,
@@ -143,9 +144,9 @@ PGHOST_DRIVE_WRITER_INFO_RESPONSE GetWriterInfo(HANDLE Device, USHORT Index, BOO
 	//printf("Retrieving actual data...\n");
 	
 	result = DeviceIoControl(Device,
-		IOCTL_GHOST_DRIVE_GET_WRITER_INFO,
-		&WriterInfoParams,
-		sizeof(GHOST_DRIVE_WRITER_INFO_PARAMETERS),
+		IOCTL_MINIPORT_PROCESS_SERVICE_IRP,
+		&RequestParams,
+		sizeof(REQUEST_PARAMETERS),
 		WriterInfo,
 		RequiredSize,
 		&BytesReturned,
@@ -181,8 +182,8 @@ void mount_image(int ID) {
 	Parameters->MagicNumber = GHOST_MAGIC_NUMBER;
 	Parameters->Opcode = OpcodeEnable;
 	Parameters->DeviceID = 7;
-	wcscpy(Parameters->ImageName, L"\\DosDevices\\C:\\gd7.img");
-	Parameters->ImageNameLength = strlen("\\DosDevices\\C:\\gd7.img");
+	wcscpy(Parameters->MountInfo.ImageName, L"\\DosDevices\\C:\\gd7.img");
+	Parameters->MountInfo.ImageNameLength = (USHORT)strlen("\\DosDevices\\C:\\gd7.img");
 
 	result = DeviceIoControl(hDevice,
 		IOCTL_MINIPORT_PROCESS_SERVICE_IRP,
@@ -246,9 +247,9 @@ void umount_image(int ID) {
 		return;
 	}
 	
-	/*printf("Querying writer info...\n");
+	printf("Querying writer info...\n");
 	
-	for (i = 0; i < MAX_NUM_WRITER_INFO; i++) {
+	for (i = 0; i < GHOST_MAX_TARGETS; i++) {
 		WriterInfo = GetWriterInfo(hDevice, i, FALSE, lID);
 		if (WriterInfo != NULL) {
 			PrintWriterInfo(WriterInfo);
@@ -257,7 +258,7 @@ void umount_image(int ID) {
 		else {
 			break;
 		}
-	}*/
+	}
 
 	printf("Deactivating GhostDrive...\n");
 	
