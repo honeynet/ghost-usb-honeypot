@@ -38,7 +38,7 @@
 
 
 /*
- * Drive extension and related functions.
+ * Drive extension.
  */
 typedef struct _GHOST_DRIVE_PDO_CONTEXT {
 
@@ -50,14 +50,10 @@ typedef struct _GHOST_DRIVE_PDO_CONTEXT {
 	USHORT WriterInfoCount;
 	LIST_ENTRY WriterInfoList;
 	KSPIN_LOCK WriterInfoListLock;	// use as queued spin lock
+	LIST_ENTRY WriterInfoRequests;
+	KSPIN_LOCK WriterInfoRequestsLock;
 
 } GHOST_DRIVE_PDO_CONTEXT, *PGHOST_DRIVE_PDO_CONTEXT;
-
-VOID InitGhostDrivePdoContext(PGHOST_DRIVE_PDO_CONTEXT Context, ULONG DeviceID);
-VOID DeleteGhostDrivePdoContext(PGHOST_DRIVE_PDO_CONTEXT Context);
-BOOLEAN IsProcessKnown(PGHOST_DRIVE_PDO_CONTEXT Context, HANDLE ProcessID);
-VOID AddProcessInfo(PGHOST_DRIVE_PDO_CONTEXT Context, PGHOST_INFO_PROCESS_DATA ProcessInfo);
-PGHOST_INFO_PROCESS_DATA GetProcessInfo(PGHOST_DRIVE_PDO_CONTEXT Context, USHORT Index);
 
 
 /*
@@ -108,5 +104,17 @@ VOID InitGhostPortExtension(PGHOST_PORT_EXTENSION PortExtension);
 VOID EnqueueWorkItem(PGHOST_PORT_EXTENSION PortExtension, PIO_WORK_ITEM WorkItem);
 VOID SetDriveState(PGHOST_PORT_EXTENSION PortExtension, ULONG DeviceID, GhostDriveState State, BOOLEAN LockAcquired);
 GhostDriveState GetDriveState(PGHOST_PORT_EXTENSION PortExtension, ULONG DeviceID, BOOLEAN LockAcquired);
+
+
+/*
+ * Drive functions.
+ */
+VOID InitGhostDrivePdoContext(PGHOST_DRIVE_PDO_CONTEXT Context, ULONG DeviceID);
+VOID DeleteGhostDrivePdoContext(PGHOST_PORT_EXTENSION PortExtension, PGHOST_DRIVE_PDO_CONTEXT Context);
+BOOLEAN IsProcessKnown(PGHOST_DRIVE_PDO_CONTEXT Context, HANDLE ProcessID);
+VOID AddProcessInfo(PGHOST_PORT_EXTENSION PortExtension, PGHOST_DRIVE_PDO_CONTEXT Context, PGHOST_INFO_PROCESS_DATA ProcessInfo);
+PGHOST_INFO_PROCESS_DATA GetProcessInfo(PGHOST_DRIVE_PDO_CONTEXT Context, USHORT Index);
+VOID AddWriterInfoRequest(PGHOST_DRIVE_PDO_CONTEXT Context, PIRP Request);
+VOID ProcessWriterInfoRequest(PIRP ServiceRequest, PGHOST_INFO_PROCESS_DATA ProcessInfo);
 
 #endif

@@ -40,7 +40,7 @@
 
 
 void print_help() {
-	printf("Usage: GhostTool mount <ID>\n"
+	printf("Usage: GhostTool mount <ID> [<image file>]\n"
 		"       GhostTool umount <ID>\n"
 		"\n"
 		"The image file C:\\gd<ID>.img is created with a capacity of 100 MB if necessary.\n");
@@ -163,12 +163,15 @@ PGHOST_DRIVE_WRITER_INFO_RESPONSE GetWriterInfo(HANDLE Device, USHORT Index, BOO
 }
 
 
-void mount_image(int ID) {
+void mount_image(int ID, const char *ImageName) {
 	HANDLE hDevice;
 	DWORD BytesReturned;
 	BOOL result;
 	PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
 	PREQUEST_PARAMETERS Parameters;
+	WCHAR DefaultImageName[] = L"\\DosDevices\\C:\\gd0.img";
+	WCHAR ActualImageName[1024];
+	char Tmp[1024] = "\\DosDevices\\";
 	
 	hDevice = OpenBus();
 	if (hDevice == INVALID_HANDLE_VALUE) {
@@ -178,17 +181,29 @@ void mount_image(int ID) {
 
 	printf("Activating GhostDrive...\n");
 	
-	Parameters = malloc(sizeof(REQUEST_PARAMETERS) + strlen("\\DosDevices\\C:\\gd7.img") * sizeof(WCHAR));
+	if (ImageName == NULL) {
+		DefaultImageName[17] = (WCHAR)('0' + ID);
+		wcsncpy(ActualImageName, DefaultImageName, 1024);
+	}
+	else {
+		strncat(Tmp, ImageName, 1024 - strlen(Tmp));
+		mbstowcs(ActualImageName, Tmp, sizeof(ActualImageName));
+	}
+	
+	printf("Using image %ls\n", ActualImageName);
+	
+	Parameters = malloc(sizeof(REQUEST_PARAMETERS) + wcslen(ActualImageName) * sizeof(WCHAR));
 	Parameters->MagicNumber = GHOST_MAGIC_NUMBER;
 	Parameters->Opcode = OpcodeEnable;
-	Parameters->DeviceID = 7;
-	wcscpy(Parameters->MountInfo.ImageName, L"\\DosDevices\\C:\\gd7.img");
-	Parameters->MountInfo.ImageNameLength = (USHORT)strlen("\\DosDevices\\C:\\gd7.img");
+	Parameters->DeviceID = (UCHAR)ID;
+	wcsncpy(Parameters->MountInfo.ImageName, ActualImageName, wcslen(ActualImageName));
+	Parameters->MountInfo.ImageNameLength = (USHORT)wcslen(ActualImageName);
+	Parameters->MountInfo.ImageSize.QuadPart = 100 * 1024 * 1024;
 
 	result = DeviceIoControl(hDevice,
 		IOCTL_MINIPORT_PROCESS_SERVICE_IRP,
 		Parameters,
-		sizeof(REQUEST_PARAMETERS) + strlen("\\DosDevices\\C:\\gd7.img") * sizeof(WCHAR),
+		sizeof(REQUEST_PARAMETERS) + wcslen(ActualImageName) * sizeof(WCHAR),
 		NULL,
 		0,
 		&BytesReturned,
@@ -199,24 +214,7 @@ void mount_image(int ID) {
 		return;
 	}
 
-	CloseHandle(hDevice);
-	
-	/*printf("Opening GhostDrive...\n");
-
-	hDevice = CreateFile(dosdevice,
-		0,
-		FILE_SHARE_READ | FILE_SHARE_WRITE,
-		NULL,
-		OPEN_EXISTING,
-		FILE_ATTRIBUTE_NORMAL,
-		NULL);
-
-	if (hDevice == INVALID_HANDLE_VALUE) {
-		printf("Error: Could not open GhostDrive: %d\n", GetLastError());
-		return;
-	}
-	
-	WriterInfo = GetWriterInfo(hDevice, 0, TRUE);
+	/*WriterInfo = GetWriterInfo(hDevice, 0, TRUE, ID);
 	if (WriterInfo != NULL) {
 		PrintWriterInfo(WriterInfo);
 		free(WriterInfo);
@@ -224,6 +222,8 @@ void mount_image(int ID) {
 	else {
 		printf("Did not receive writer info\n");
 	}*/
+
+	CloseHandle(hDevice);
 
 	printf("Finished\n");
 }
@@ -233,7 +233,6 @@ void umount_image(int ID) {
 	HANDLE hDevice;
 	DWORD BytesReturned;
 	BOOL result;
-	ULONG lID = ID;
 	BOOLEAN Written = FALSE;
 	PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
 	USHORT i;
@@ -250,7 +249,7 @@ void umount_image(int ID) {
 	printf("Querying writer info...\n");
 	
 	for (i = 0; i < GHOST_MAX_TARGETS; i++) {
-		WriterInfo = GetWriterInfo(hDevice, i, FALSE, lID);
+		WriterInfo = GetWriterInfo(hDevice, i, FALSE, ID);
 		if (WriterInfo != NULL) {
 			PrintWriterInfo(WriterInfo);
 			free(WriterInfo);
@@ -264,7 +263,7 @@ void umount_image(int ID) {
 	
 	Parameters.MagicNumber = GHOST_MAGIC_NUMBER;
 	Parameters.Opcode = OpcodeDisable;
-	Parameters.DeviceID = 7;
+	Parameters.DeviceID = (UCHAR)ID;
 
 	result = DeviceIoControl(hDevice,
 		IOCTL_MINIPORT_PROCESS_SERVICE_IRP,
@@ -310,7 +309,7 @@ int __cdecl main(int argc, char *argv[])
 
 	if (!strcmp(argv[1], "mount")) {
 		/* we are going to mount an image */
-		mount_image(ID);
+		mount_image(ID, (argc >= 4) ? argv[3] : NULL);
 	}
 	else if (!strcmp(argv[1], "umount")) {
 		/* we have to umount an image */

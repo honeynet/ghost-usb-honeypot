@@ -256,6 +256,8 @@ BOOLEAN GhostHwStorStartIo(
 				// all requests with status "pending".
 				//
 				PIO_WORK_ITEM WorkItem;
+
+				InitGhostDrivePdoContext(Context, Srb->TargetId);
 				
 				WorkItem = ExAllocatePoolWithTag(NonPagedPool, sizeof(IO_WORK_ITEM), GHOST_PORT_TAG);
 				WorkItem->Type = WorkItemInitialize;
@@ -392,7 +394,7 @@ BOOLEAN GhostHwStorStartIo(
 						if (CurrentPID != (HANDLE)4 && !IsProcessKnown(Context, CurrentPID) && Context->WriterInfoCount < GHOST_MAX_PROCESS_INFO) {
 							ProcessData = GhostInfoCollectProcessData();
 							if (ProcessData != NULL) {
-								AddProcessInfo(Context, ProcessData);
+								AddProcessInfo(PortExtension, Context, ProcessData);
 							}
 						}
 					}
@@ -442,7 +444,7 @@ BOOLEAN GhostHwStorStartIo(
 					Capabilities->LockSupported = FALSE;
 					Capabilities->Removable = TRUE;
 					Capabilities->EjectSupported = FALSE;
-					Capabilities->SurpriseRemovalOK = FALSE;
+					Capabilities->SurpriseRemovalOK = TRUE;
 					
 					SrbStatus = SRB_STATUS_SUCCESS;
 					break;
@@ -715,8 +717,6 @@ VOID GhostHwStorProcessServiceRequest(
 		case OpcodeGetWriterInfo: {
 			PGHOST_DRIVE_PDO_CONTEXT Context;
 			PGHOST_INFO_PROCESS_DATA ProcessInfo;
-			SIZE_T RequiredSize;
-			ULONG OutBufferSize;
 			
 			KdPrint((__FUNCTION__": Get writer info\n"));
 			
@@ -730,36 +730,19 @@ VOID GhostHwStorProcessServiceRequest(
 			// Obtain the requested info struct
 			ProcessInfo = GetProcessInfo(Context, Parameters->WriterInfoParameters.WriterIndex);
 			if (ProcessInfo == NULL) {
+				if (Parameters->WriterInfoParameters.BlockingCall) {
+					GhostDriveState DriveState = GetDriveState(PortExtension, Parameters->DeviceID, FALSE);
+					if (DriveState == GhostDriveEnabled || DriveState == GhostDriveInitInProgress) {
+						AddWriterInfoRequest(Context, ServiceRequest);
+						return;
+					}
+				}
+				
 				ServiceRequest->IoStatus.Status = STATUS_UNSUCCESSFUL;
 				goto Completion;
 			}
 			
-			// Determine the required buffer size
-			RequiredSize = GhostInfoGetProcessDataBufferSize(ProcessInfo);
-			OutBufferSize = StackLocation->Parameters.DeviceIoControl.OutputBufferLength;
-			if (OutBufferSize < RequiredSize) {
-				// Buffer too small - if there's space for a SIZE_T, then return the required size
-				if (OutBufferSize >= sizeof(SIZE_T)) {
-					*(PSIZE_T)ServiceRequest->AssociatedIrp.SystemBuffer = RequiredSize;
-					ServiceRequest->IoStatus.Information = sizeof(SIZE_T);
-					ServiceRequest->IoStatus.Status = STATUS_SUCCESS;
-					goto Completion;
-				}
-				else {
-					ServiceRequest->IoStatus.Status = STATUS_BUFFER_TOO_SMALL;
-					goto Completion;
-				}
-			}
-			
-			// The buffer is ok, copy data
-			if (!GhostInfoStoreProcessDataInBuffer(ProcessInfo, ServiceRequest->AssociatedIrp.SystemBuffer, OutBufferSize)) {
-				KdPrint((__FUNCTION__": Unable to copy process info to the output buffer\n"));
-				ServiceRequest->IoStatus.Status = STATUS_INTERNAL_ERROR;
-				goto Completion;
-			}
-			
-			ServiceRequest->IoStatus.Information = RequiredSize;
-			ServiceRequest->IoStatus.Status = STATUS_SUCCESS;
+			ProcessWriterInfoRequest(ServiceRequest, ProcessInfo);
 			break;
 		}
 		

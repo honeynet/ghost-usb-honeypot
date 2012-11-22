@@ -46,8 +46,6 @@ BOOLEAN InitializeDrive(PGHOST_PORT_EXTENSION PortExtension, PGHOST_DRIVE_PDO_CO
 		return FALSE;
 	}
 	
-	InitGhostDrivePdoContext(Context, DeviceID);
-	
 	// Mount the image
 	NameBufferSize = (Parameters->MountInfo.ImageNameLength + 1) * sizeof(WCHAR);
 	NameBuffer = ExAllocatePoolWithTag(PagedPool, NameBufferSize, GHOST_PORT_TAG);
@@ -90,7 +88,7 @@ VOID RemoveDrive(PGHOST_PORT_EXTENSION PortExtension, PGHOST_DRIVE_PDO_CONTEXT C
 		SetDriveState(PortExtension, Context->ID, GhostDriveEnabled, FALSE);
 		return;
 	}
-	DeleteGhostDrivePdoContext(Context);
+	DeleteGhostDrivePdoContext(PortExtension, Context);
 	SetDriveState(PortExtension, DeviceID, GhostDriveDisabled, FALSE);
 	StorPortNotification(BusChangeDetected, PortExtension, 0);
 }

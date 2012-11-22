@@ -37,11 +37,37 @@ VOID InitGhostDrivePdoContext(PGHOST_DRIVE_PDO_CONTEXT Context, ULONG DeviceID) 
 	Context->WriterInfoCount = 0;
 	InitializeListHead(&Context->WriterInfoList);
 	KeInitializeSpinLock(&Context->WriterInfoListLock);
+	InitializeListHead(&Context->WriterInfoRequests);
+	KeInitializeSpinLock(&Context->WriterInfoRequestsLock);
 }
 
 
-VOID DeleteGhostDrivePdoContext(PGHOST_DRIVE_PDO_CONTEXT Context) {
-	// TODO: Delete all process info structs
+VOID DeleteGhostDrivePdoContext(PGHOST_PORT_EXTENSION PortExtension, PGHOST_DRIVE_PDO_CONTEXT Context) {
+	KLOCK_QUEUE_HANDLE LockHandle;
+	PLIST_ENTRY CurrentNode;
+
+	// Delete all process info structs
+	KeAcquireInStackQueuedSpinLock(&Context->WriterInfoListLock, &LockHandle);
+	CurrentNode = RemoveHeadList(&Context->WriterInfoList);
+	while (CurrentNode != &Context->WriterInfoList) {
+		GhostInfoFreeProcessData(CONTAINING_RECORD(CurrentNode, GHOST_INFO_PROCESS_DATA, ListNode));
+		CurrentNode = RemoveHeadList(&Context->WriterInfoList);
+	}
+	KeReleaseInStackQueuedSpinLock(&LockHandle);
+	
+	// Cancel all outstanding writer info requests
+	KeAcquireInStackQueuedSpinLock(&Context->WriterInfoRequestsLock, &LockHandle);
+	CurrentNode = RemoveHeadList(&Context->WriterInfoRequests);
+	while (CurrentNode != &Context->WriterInfoRequests) {
+		PIRP Request = CONTAINING_RECORD(CurrentNode, IRP, Tail.Overlay.ListEntry);
+		
+		Request->IoStatus.Status = STATUS_CANCELLED;
+		StorPortCompleteServiceIrp(PortExtension, Request);
+		
+		CurrentNode = RemoveHeadList(&Context->WriterInfoList);
+	}
+	KeReleaseInStackQueuedSpinLock(&LockHandle);
+	
 	RtlZeroMemory(Context, sizeof(GHOST_DRIVE_PDO_CONTEXT));
 	return;
 }
@@ -127,12 +153,40 @@ BOOLEAN IsProcessKnown(PGHOST_DRIVE_PDO_CONTEXT Context, HANDLE ProcessID) {
 }
 
 
-VOID AddProcessInfo(PGHOST_DRIVE_PDO_CONTEXT Context, PGHOST_INFO_PROCESS_DATA ProcessInfo) {
+VOID AddProcessInfo(PGHOST_PORT_EXTENSION PortExtension, PGHOST_DRIVE_PDO_CONTEXT Context, PGHOST_INFO_PROCESS_DATA ProcessInfo) {
 	KLOCK_QUEUE_HANDLE LockHandle;
+	USHORT NewIndex;
+	PLIST_ENTRY CurrentNode;
 	
 	KeAcquireInStackQueuedSpinLock(&Context->WriterInfoListLock, &LockHandle);
 	InsertTailList(&Context->WriterInfoList, &ProcessInfo->ListNode);
 	Context->WriterInfoCount++;
+	NewIndex = Context->WriterInfoCount - 1;
+	KeReleaseInStackQueuedSpinLock(&LockHandle);
+	
+	// Complete any outstanding writer info requests
+	KeAcquireInStackQueuedSpinLock(&Context->WriterInfoRequestsLock, &LockHandle);
+	CurrentNode = Context->WriterInfoRequests.Flink;
+	while (CurrentNode != &Context->WriterInfoRequests) {
+		PIRP Request = CONTAINING_RECORD(CurrentNode, IRP, Tail.Overlay.ListEntry);
+		PREQUEST_PARAMETERS Parameters = Request->AssociatedIrp.SystemBuffer;
+		
+		// If this is a request for the new entry, then handle it
+		if (Parameters->WriterInfoParameters.WriterIndex == NewIndex) {
+			NTSTATUS status;
+			
+			CurrentNode = CurrentNode->Blink;
+			RemoveHeadList(CurrentNode);
+			
+			ProcessWriterInfoRequest(Request, ProcessInfo);
+			status = StorPortCompleteServiceIrp(PortExtension, Request);
+			if (!NT_SUCCESS(status)) {
+				KdPrint((__FUNCTION__": Service request completion failed with status 0x%lx\n", status));
+			}
+		}
+		
+		CurrentNode = CurrentNode->Flink;
+	}
 	KeReleaseInStackQueuedSpinLock(&LockHandle);
 }
 
@@ -158,4 +212,47 @@ PGHOST_INFO_PROCESS_DATA GetProcessInfo(PGHOST_DRIVE_PDO_CONTEXT Context, USHORT
 	
 	KeReleaseInStackQueuedSpinLock(&LockHandle);
 	return CONTAINING_RECORD(CurrentNode, GHOST_INFO_PROCESS_DATA, ListNode);
+}
+
+
+VOID AddWriterInfoRequest(PGHOST_DRIVE_PDO_CONTEXT Context, PIRP Request) {
+	KLOCK_QUEUE_HANDLE LockHandle;
+	
+	KeAcquireInStackQueuedSpinLock(&Context->WriterInfoRequestsLock, &LockHandle);
+	InsertTailList(&Context->WriterInfoRequests, &Request->Tail.Overlay.ListEntry);
+	KeReleaseInStackQueuedSpinLock(&LockHandle);
+}
+
+
+VOID ProcessWriterInfoRequest(PIRP ServiceRequest, PGHOST_INFO_PROCESS_DATA ProcessInfo) {
+	SIZE_T RequiredSize;
+	ULONG OutBufferSize;
+	PIO_STACK_LOCATION StackLocation = IoGetCurrentIrpStackLocation(ServiceRequest);
+
+	// Determine the required buffer size
+	RequiredSize = GhostInfoGetProcessDataBufferSize(ProcessInfo);
+	OutBufferSize = StackLocation->Parameters.DeviceIoControl.OutputBufferLength;
+	if (OutBufferSize < RequiredSize) {
+		// Buffer too small - if there's space for a SIZE_T, then return the required size
+		if (OutBufferSize >= sizeof(SIZE_T)) {
+			*(PSIZE_T)ServiceRequest->AssociatedIrp.SystemBuffer = RequiredSize;
+			ServiceRequest->IoStatus.Information = sizeof(SIZE_T);
+			ServiceRequest->IoStatus.Status = STATUS_SUCCESS;
+		}
+		else {
+			ServiceRequest->IoStatus.Status = STATUS_BUFFER_TOO_SMALL;
+		}
+		
+		return;
+	}
+	
+	// The buffer is ok, copy data
+	if (!GhostInfoStoreProcessDataInBuffer(ProcessInfo, ServiceRequest->AssociatedIrp.SystemBuffer, OutBufferSize)) {
+		KdPrint((__FUNCTION__": Unable to copy process info to the output buffer\n"));
+		ServiceRequest->IoStatus.Status = STATUS_INTERNAL_ERROR;
+		return;
+	}
+	
+	ServiceRequest->IoStatus.Information = RequiredSize;
+	ServiceRequest->IoStatus.Status = STATUS_SUCCESS;
 }
