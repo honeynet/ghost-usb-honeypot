@@ -1,0 +1,11 @@
+LIBRARY GhostLib
+EXPORTS
+	GhostMountDevice
+	GhostMountDeviceWithID
+	GhostUmountDevice
+	GhostGetLastError
+	GhostGetErrorDescription
+	GhostGetProcessID
+	GhostGetThreadID
+	GhostGetNumModules
+	GhostGetModuleName

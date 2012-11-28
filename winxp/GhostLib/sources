@@ -1,0 +1,10 @@
+TARGETNAME=GhostLib
+TARGETTYPE=DYNLINK
+
+INCLUDES=..\GhostBus\sys;..\GhostDrive
+
+SOURCES=ghostlib.c devicelist.c
+
+TARGETLIBS=$(SDK_LIB_PATH)\kernel32.lib
+
+USE_MSVCRT=1
