@@ -1,4 +1,5 @@
 TARGETNAME=GhostDrive
+TARGETPATH=../bin
 TARGETTYPE=DRIVER
 
 SOURCES=ghostdrive.c

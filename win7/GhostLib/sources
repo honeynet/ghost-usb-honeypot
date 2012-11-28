@@ -1,7 +1,8 @@
 TARGETNAME=GhostLib
+TARGETPATH=../bin
 TARGETTYPE=DYNLINK
 
-INCLUDES=..\GhostBus\sys;..\GhostDrive
+INCLUDES=..\Miniport;..
 
 SOURCES=ghostlib.c devicelist.c
 

@@ -1,4 +1,5 @@
 TARGETNAME=GhostBus
+TARGETPATH=../../bin
 TARGETTYPE=DRIVER
 
 INCLUDES=..\..\GhostDrive

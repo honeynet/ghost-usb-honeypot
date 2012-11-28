@@ -1,7 +1,8 @@
 TARGETNAME=GhostTool
+TARGETPATH=../bin
 TARGETTYPE=PROGRAM
 
-INCLUDES=..\GhostBus\sys;..\GhostDrive;..\..\Miniport;$(DDK_INC_PATH)
+INCLUDES=..\Miniport;..;$(DDK_INC_PATH)
 
 TARGETLIBS=$(SDK_LIB_PATH)\shell32.lib \
            $(SDK_LIB_PATH)\user32.lib \
