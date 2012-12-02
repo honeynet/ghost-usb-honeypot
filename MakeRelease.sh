@@ -44,6 +44,7 @@ fi
 
 cp "${SUBDIR}"/bin/i386/*.{exe,dll,sys} "$DSTDIR"
 cp "${SUBDIR}"/GhostLib/ghostlib.h "$DSTDIR"
+cp "${SUBDIR}"/GhostGUI/bin/Release/GhostGUI.exe "$DSTDIR"
 
 cd "$DSTDIR"
 zip "../$ARCHIVE" *

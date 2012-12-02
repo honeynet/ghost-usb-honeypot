@@ -1,1 +1,1 @@
-DIRS=Miniport MiniportCmd GhostLib Test
+DIRS=Miniport MiniportCmd GhostLib Test Installer
