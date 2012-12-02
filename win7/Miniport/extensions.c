@@ -178,6 +178,11 @@ VOID AddProcessInfo(PGHOST_PORT_EXTENSION PortExtension, PGHOST_DRIVE_PDO_CONTEX
 			RemoveEntryList(CurrentNode);
 			CurrentNode = CurrentNode->Flink;
 			
+			//
+			// We can't complete the IRP here, because its buffer is inaccessible at the current IRQL
+			// (although it should be in non-paged memory, according to the documentation...). Instead,
+			// we tell the I/O worker thread to complete the IRP.
+			//
 			WorkItem = ExAllocatePoolWithTag(NonPagedPool, sizeof(IO_WORK_ITEM), GHOST_PORT_TAG);
 			WorkItem->Type = WorkItemInfoRequest;
 			WorkItem->DriveContext = Context;
