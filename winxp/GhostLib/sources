@@ -1,4 +1,5 @@
 TARGETNAME=GhostLib
+TARGETPATH=../bin
 TARGETTYPE=DYNLINK
 
 INCLUDES=..\GhostBus\sys;..\GhostDrive

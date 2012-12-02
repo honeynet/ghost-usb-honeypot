@@ -1,10 +1,11 @@
 TARGETNAME=Test
+TARGETPATH=../bin
 TARGETTYPE=PROGRAM
 
 INCLUDES=..\GhostLib
 
 SOURCES=main.c
-TARGETLIBS=..\GhostLib\objchk_wxp_x86\*\GhostLib.lib \
+TARGETLIBS=..\bin\*\GhostLib.lib \
 			$(SDK_LIB_PATH)\kernel32.lib
 
 USE_MSVCRT=1

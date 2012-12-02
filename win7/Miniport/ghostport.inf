@@ -1,0 +1,82 @@
+
+; Ghost - A honeypot for USB malware
+; Copyright (C) 2011-2012  Sebastian Poeplau (sebastian.poeplau@gmail.com)
+; 
+; This program is free software: you can redistribute it and/or modify
+; it under the terms of the GNU General Public License as published by
+; the Free Software Foundation, either version 3 of the License, or
+; (at your option) any later version.
+; 
+; This program is distributed in the hope that it will be useful,
+; but WITHOUT ANY WARRANTY; without even the implied warranty of
+; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+; GNU General Public License for more details.
+; 
+; You should have received a copy of the GNU General Public License
+; along with this program. If not, see <http://www.gnu.org/licenses/>.
+; 
+; Additional permission under GNU GPL version 3 section 7
+; 
+; If you modify this Program, or any covered work, by linking or combining
+; it with the Windows Driver Frameworks (or a modified version of that library),
+; containing parts covered by the terms of the Microsoft Software License Terms -
+; Microsoft Windows Driver Kit, the licensors of this Program grant you additional
+; permission to convey the resulting work.
+
+
+[Version]
+Signature = "$Windows NT$"
+Class = SCSIAdapter
+ClassGUID = {4D36E97B-E325-11CE-BFC1-08002BE10318}
+Provider = %Ghost%
+DriverVer=11/22/2012,7.4.13.333
+
+
+[SourceDisksNames]
+1 = %DiscDescription%
+
+
+[SourceDisksFiles]
+ghostport.sys = 1
+
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+
+[Manufacturer]
+%Mfg% = Models,NTx86,NTamd64
+
+
+[Models.NTx86]
+%DeviceDesc% = GhostPortDevice,root\ghostport
+
+[Models.NTamd64]
+%DeviceDesc% = GhostPortDevice,root\ghostport
+
+
+[GhostPortDevice]
+CopyFiles = @ghostport.sys
+
+
+[GhostPortDevice.Services]
+AddService = ghostport,2,GhostPortService
+
+
+[GhostPortService]
+DisplayName = %ServiceName%
+Description = %ServiceDesc%
+ServiceType = 1
+StartType = 3
+ErrorControl = 1
+ServiceBinary = %12%\ghostport.sys
+
+
+[Strings]
+Ghost = "Ghost USB honeypot"
+DiscDescription = "GhostPort driver disk 1"
+Mfg = "(Standard system devices)"
+DeviceDesc = "GhostPort Enumerator"
+ServiceName = "GhostPort driver"
+ServiceDesc = "Enumerates GhostDrive virtual drives"
+
