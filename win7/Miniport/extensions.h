@@ -38,8 +38,14 @@
 
 
 /*
- * Drive extension.
+ * Drive extension and related types.
  */
+typedef struct _WRITER_INFO_REQUEST {
+	LIST_ENTRY ListEntry;
+	USHORT RequestedIndex;
+	PIRP Irp;
+} WRITER_INFO_REQUEST, *PWRITER_INFO_REQUEST;
+
 typedef struct _GHOST_DRIVE_PDO_CONTEXT {
 
 	BOOLEAN ImageMounted;
@@ -71,7 +77,8 @@ typedef enum {
 typedef enum {
 	WorkItemIo,
 	WorkItemInitialize,
-	WorkItemRemove
+	WorkItemRemove,
+	WorkItemInfoRequest
 } WorkItemType;
 
 
@@ -82,6 +89,10 @@ typedef struct _IO_WORK_ITEM {
 	union {
 		PSCSI_REQUEST_BLOCK Srb;
 		ULONG DeviceID;
+		struct {
+			PWRITER_INFO_REQUEST WriterInfoRequest;
+			PGHOST_INFO_PROCESS_DATA ProcessInfo;
+		} WriterInfoData;
 	};
 } IO_WORK_ITEM, *PIO_WORK_ITEM;
 

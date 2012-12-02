@@ -197,6 +197,24 @@ VOID IoWorkerThread(PVOID ExecutionContext) {
 				RemoveDrive(PortExtension, WorkItem->DriveContext);
 				break;
 			}
+			
+			case WorkItemInfoRequest: {
+				NTSTATUS status;
+				PIRP Request = WorkItem->WriterInfoData.WriterInfoRequest->Irp;
+
+				ProcessWriterInfoRequest(Request, WorkItem->WriterInfoData.ProcessInfo);
+				ExFreePoolWithTag(WorkItem->WriterInfoData.WriterInfoRequest, GHOST_PORT_TAG);
+				status = StorPortCompleteServiceIrp(PortExtension, Request);
+				if (!NT_SUCCESS(status)) {
+					KdPrint((__FUNCTION__": Service request completion failed with status 0x%lx\n", status));
+				}
+				
+				break;
+			}
+			
+			default:
+				KdPrint((__FUNCTION__": Unknown work item type\n"));
+				break;
 		}
 		
 		ExFreePoolWithTag(WorkItem, GHOST_PORT_TAG);

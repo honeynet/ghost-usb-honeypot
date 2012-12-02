@@ -6,6 +6,7 @@ INCLUDES=..\Miniport;..
 
 SOURCES=ghostlib.c devicelist.c
 
-TARGETLIBS=$(SDK_LIB_PATH)\kernel32.lib
+TARGETLIBS=$(SDK_LIB_PATH)\kernel32.lib \
+		   $(SDK_LIB_PATH)\setupapi.lib
 
 USE_MSVCRT=1

@@ -25,45 +25,38 @@
  * 
  */
 
-#ifndef DEVICELIST_H
-#define DEVICELIST_H
-
-
-#include <windows.h>
-
-#if (NTDDI_VERSION < NTDDI_VISTA)
-#include <ghostbus.h>
-#else
-#include <portctl.h>
-#endif
-
 #include "ghostlib.h"
 
-
-typedef struct _GHOST_INCIDENT {
-	int IncidentID;
-	PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
-	struct _GHOST_INCIDENT *Next;
-} GHOST_INCIDENT, *PGHOST_INCIDENT;
+#include <stdio.h>
+#include <Windows.h>
 
 
-typedef struct _GHOST_DEVICE {
-	int DeviceID;
-	GhostIncidentCallback Callback;
-	void *Context;
-	HANDLE StopEvent;
-	HANDLE InfoThread;
-	PGHOST_INCIDENT Incidents;
-	struct _GHOST_DEVICE *Next;
-} GHOST_DEVICE, *PGHOST_DEVICE;
+void Callback(int DeviceID, int IncidentID, void *Context) {
+	// Data was written to the emulated device -
+	// obtain information about the write request
+	printf("Process ID: %d\n", GhostGetProcessID(DeviceID, IncidentID));
+	printf("Thread ID: %d\n", GhostGetThreadID(DeviceID, IncidentID));
+}
 
 
-void DeviceListInit();
-void DeviceListDestroy();
-PGHOST_DEVICE DeviceListCreateDevice(int DeviceID);
-void DeviceListAdd(PGHOST_DEVICE Device);
-PGHOST_DEVICE DeviceListGet(int DeviceID);
-void DeviceListRemove(int DeviceID);
-
-
-#endif
+int __cdecl main(int argc, char *argv[]) {
+	int ID;
+	
+	printf("Mount the device and register a callback function\n");
+	ID = GhostMountDeviceWithID(0, Callback, NULL, "C:\\gd0.img");
+	if (ID < 0) {
+		printf("Error: %s\n", GhostGetErrorDescription(GhostGetLastError()));
+		return -1;
+	}
+	
+	// Wait for the malware to infect the device
+	Sleep(10 * 1000);
+	
+	printf("Unmount the device\n");
+	if (GhostUmountDevice(ID) < 0) {
+		printf("Error: %s\n", GhostGetErrorDescription(GhostGetLastError()));
+		return -1;
+	}
+	
+	return 0;
+}

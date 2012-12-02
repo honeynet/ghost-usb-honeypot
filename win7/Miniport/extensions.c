@@ -59,12 +59,13 @@ VOID DeleteGhostDrivePdoContext(PGHOST_PORT_EXTENSION PortExtension, PGHOST_DRIV
 	KeAcquireInStackQueuedSpinLock(&Context->WriterInfoRequestsLock, &LockHandle);
 	CurrentNode = RemoveHeadList(&Context->WriterInfoRequests);
 	while (CurrentNode != &Context->WriterInfoRequests) {
-		PIRP Request = CONTAINING_RECORD(CurrentNode, IRP, Tail.Overlay.ListEntry);
+		PWRITER_INFO_REQUEST WriterInfoRequest = CONTAINING_RECORD(CurrentNode, WRITER_INFO_REQUEST, ListEntry);
+		PIRP Request = WriterInfoRequest->Irp;
 		
 		Request->IoStatus.Status = STATUS_CANCELLED;
 		StorPortCompleteServiceIrp(PortExtension, Request);
 		
-		CurrentNode = RemoveHeadList(&Context->WriterInfoList);
+		CurrentNode = RemoveHeadList(&Context->WriterInfoRequests);
 	}
 	KeReleaseInStackQueuedSpinLock(&LockHandle);
 	
@@ -168,24 +169,25 @@ VOID AddProcessInfo(PGHOST_PORT_EXTENSION PortExtension, PGHOST_DRIVE_PDO_CONTEX
 	KeAcquireInStackQueuedSpinLock(&Context->WriterInfoRequestsLock, &LockHandle);
 	CurrentNode = Context->WriterInfoRequests.Flink;
 	while (CurrentNode != &Context->WriterInfoRequests) {
-		PIRP Request = CONTAINING_RECORD(CurrentNode, IRP, Tail.Overlay.ListEntry);
-		PREQUEST_PARAMETERS Parameters = Request->AssociatedIrp.SystemBuffer;
+		PWRITER_INFO_REQUEST WriterInfoRequest = CONTAINING_RECORD(CurrentNode, WRITER_INFO_REQUEST, ListEntry);
 		
-		// If this is a request for the new entry, then handle it
-		if (Parameters->WriterInfoParameters.WriterIndex == NewIndex) {
-			NTSTATUS status;
+		// If this is a request for the new entry, then handle it and move to the next list entry
+		if (WriterInfoRequest->RequestedIndex == NewIndex) {
+			PIO_WORK_ITEM WorkItem;
 			
-			CurrentNode = CurrentNode->Blink;
-			RemoveHeadList(CurrentNode);
+			RemoveEntryList(CurrentNode);
+			CurrentNode = CurrentNode->Flink;
 			
-			ProcessWriterInfoRequest(Request, ProcessInfo);
-			status = StorPortCompleteServiceIrp(PortExtension, Request);
-			if (!NT_SUCCESS(status)) {
-				KdPrint((__FUNCTION__": Service request completion failed with status 0x%lx\n", status));
-			}
+			WorkItem = ExAllocatePoolWithTag(NonPagedPool, sizeof(IO_WORK_ITEM), GHOST_PORT_TAG);
+			WorkItem->Type = WorkItemInfoRequest;
+			WorkItem->DriveContext = Context;
+			WorkItem->WriterInfoData.WriterInfoRequest = WriterInfoRequest;
+			WorkItem->WriterInfoData.ProcessInfo = ProcessInfo;
+			EnqueueWorkItem(PortExtension, WorkItem);
 		}
-		
-		CurrentNode = CurrentNode->Flink;
+		else {
+			CurrentNode = CurrentNode->Flink;
+		}
 	}
 	KeReleaseInStackQueuedSpinLock(&LockHandle);
 }
@@ -217,9 +219,14 @@ PGHOST_INFO_PROCESS_DATA GetProcessInfo(PGHOST_DRIVE_PDO_CONTEXT Context, USHORT
 
 VOID AddWriterInfoRequest(PGHOST_DRIVE_PDO_CONTEXT Context, PIRP Request) {
 	KLOCK_QUEUE_HANDLE LockHandle;
+	PWRITER_INFO_REQUEST WriterInfoRequest;
+	
+	WriterInfoRequest = ExAllocatePoolWithTag(NonPagedPool, sizeof(WRITER_INFO_REQUEST), GHOST_PORT_TAG);
+	WriterInfoRequest->Irp = Request;
+	WriterInfoRequest->RequestedIndex = ((PREQUEST_PARAMETERS)Request->AssociatedIrp.SystemBuffer)->WriterInfoParameters.WriterIndex;
 	
 	KeAcquireInStackQueuedSpinLock(&Context->WriterInfoRequestsLock, &LockHandle);
-	InsertTailList(&Context->WriterInfoRequests, &Request->Tail.Overlay.ListEntry);
+	InsertTailList(&Context->WriterInfoRequests, &WriterInfoRequest->ListEntry);
 	KeReleaseInStackQueuedSpinLock(&LockHandle);
 }
 

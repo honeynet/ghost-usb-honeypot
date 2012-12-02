@@ -33,8 +33,11 @@
 #include <windows.h>
 #include <winioctl.h>
 
-#include <ghostbus.h>
-#include <ghostbus.h>
+#include <ntddscsi.h>
+#include <setupapi.h>
+#include <initguid.h>
+#include <portctl.h>
+
 #include <version.h>
 
 
@@ -48,7 +51,9 @@ static const char *ErrorDescriptions[] = {
 	"The supplied device ID is invalid", // 5
 	"Could not initialize an event object", // 6
 	"Invalid device ID", // 7
-	"Could not set an event object" // 8
+	"Could not set an event object", // 8
+	"No image name specified", // 9
+	"Image name too long" // 10
 };
 
 
@@ -64,6 +69,53 @@ BOOL WINAPI DllMain(HINSTANCE hinstDll, DWORD fdwReason, LPVOID lpvReserved) {
 	}
 	
 	return TRUE;
+}
+
+
+HANDLE OpenBus() {
+	HANDLE hDevice;
+	HDEVINFO DevInfo;
+	SP_DEVICE_INTERFACE_DATA DevInterfaceData;
+	DWORD RequiredSize;
+	PSP_DEVICE_INTERFACE_DETAIL_DATA DevInterfaceDetailData;
+	
+	// Get all devices that support the interface
+	DevInfo = SetupDiGetClassDevsEx(&GUID_DEVINTERFACE_GHOST, NULL, NULL, DIGCF_DEVICEINTERFACE | DIGCF_PRESENT, NULL, NULL, NULL);
+	if (DevInfo == INVALID_HANDLE_VALUE) {
+		return INVALID_HANDLE_VALUE;
+	}
+	
+	// Enumerate the device instances
+	DevInterfaceData.cbSize = sizeof(SP_DEVICE_INTERFACE_DATA);
+	if (!SetupDiEnumDeviceInterfaces(DevInfo, NULL, &GUID_DEVINTERFACE_GHOST, 0, &DevInterfaceData)) {
+		//printf("Error: Unable to find an instance of the interface (0x%x)\n", GetLastError());
+		return INVALID_HANDLE_VALUE;
+	}
+	
+	// Obtain details
+	SetupDiGetDeviceInterfaceDetail(DevInfo, &DevInterfaceData, NULL, 0, &RequiredSize, NULL);
+	DevInterfaceDetailData = malloc(RequiredSize);
+	DevInterfaceDetailData->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
+	if (!SetupDiGetDeviceInterfaceDetail(DevInfo, &DevInterfaceData, DevInterfaceDetailData, RequiredSize, NULL, NULL)) {
+		//printf("Error: Unable to obtain details of the interface instance\n");
+		free(DevInterfaceDetailData);
+		return INVALID_HANDLE_VALUE;
+	}
+	
+	SetupDiDestroyDeviceInfoList(DevInfo);
+
+	//printf("Opening bus device at %s...\n", DevInterfaceDetailData->DevicePath);
+
+	hDevice = CreateFile(DevInterfaceDetailData->DevicePath,
+		GENERIC_READ | GENERIC_WRITE,
+		FILE_SHARE_READ | FILE_SHARE_WRITE,
+		NULL,
+		OPEN_EXISTING,
+		FILE_ATTRIBUTE_NORMAL,
+		NULL);
+		
+	free(DevInterfaceDetailData);
+	return hDevice;
 }
 
 
@@ -107,13 +159,7 @@ DWORD WINAPI InfoThread(LPVOID Parameter) {
 	Events[1] = Overlapped.hEvent;
 	
 	// Open the device
-	hDevice = CreateFile(dosdevice,
-		0,
-		FILE_SHARE_READ | FILE_SHARE_WRITE,
-		NULL,
-		OPEN_EXISTING,
-		FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED,
-		NULL);
+	hDevice = OpenBus();
 
 	if (hDevice == INVALID_HANDLE_VALUE) {
 		return -1;
@@ -121,19 +167,21 @@ DWORD WINAPI InfoThread(LPVOID Parameter) {
 	
 	// Wait for writer information
 	while (1) {
-		GHOST_DRIVE_WRITER_INFO_PARAMETERS WriterInfoParams;
 		SIZE_T RequiredSize;
 		DWORD BytesReturned;
 		PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
-		
-		WriterInfoParams.Block = TRUE;
-		WriterInfoParams.Index = i;
-		WriterInfoParams.DeviceID = GhostDevice->DeviceID;
+		REQUEST_PARAMETERS RequestParams;
+
+		RequestParams.Opcode = OpcodeGetWriterInfo;
+		RequestParams.MagicNumber = GHOST_MAGIC_NUMBER;
+		RequestParams.DeviceID = (UCHAR)GhostDevice->DeviceID;
+		RequestParams.WriterInfoParameters.BlockingCall = TRUE;
+		RequestParams.WriterInfoParameters.WriterIndex = i;
 
 		DeviceIoControl(hDevice,
-			IOCTL_GHOST_DRIVE_GET_WRITER_INFO,
-			&WriterInfoParams,
-			sizeof(GHOST_DRIVE_WRITER_INFO_PARAMETERS),
+			IOCTL_MINIPORT_PROCESS_SERVICE_IRP,
+			&RequestParams,
+			sizeof(REQUEST_PARAMETERS),
 			&RequiredSize,
 			sizeof(SIZE_T),
 			&BytesReturned,
@@ -160,9 +208,9 @@ DWORD WINAPI InfoThread(LPVOID Parameter) {
 		//printf("Retrieving actual data...\n");
 
 		DeviceIoControl(hDevice,
-			IOCTL_GHOST_DRIVE_GET_WRITER_INFO,
-			&WriterInfoParams,
-			sizeof(GHOST_DRIVE_WRITER_INFO_PARAMETERS),
+			IOCTL_MINIPORT_PROCESS_SERVICE_IRP,
+			&RequestParams,
+			sizeof(REQUEST_PARAMETERS),
 			WriterInfo,
 			RequiredSize,
 			&BytesReturned,
@@ -208,17 +256,32 @@ DWORD WINAPI InfoThread(LPVOID Parameter) {
 }
 
 
-int DLLCALL GhostMountDevice(GhostIncidentCallback Callback, void *Context) {
-	return GhostMountDeviceWithID(-1, Callback, Context);
-}
+/*int DLLCALL GhostMountDevice(GhostIncidentCallback Callback, void *Context, const char *ImageName) {
+	return GhostMountDeviceWithID(-1, Callback, Context, ImageName);
+}*/
 
 
-int DLLCALL GhostMountDeviceWithID(int DeviceID, GhostIncidentCallback Callback, void *Context) {
+int DLLCALL GhostMountDeviceWithID(int DeviceID, GhostIncidentCallback Callback, void *Context, const char *ImageName) {
 	HANDLE hDevice;
 	DWORD BytesReturned;
 	BOOL result;
 	LONG OutDeviceID;
 	PGHOST_DEVICE GhostDevice;
+	PREQUEST_PARAMETERS Parameters;
+	WCHAR ActualImageName[MAX_PATH];
+	char FullImageName[MAX_PATH] = "\\DosDevices\\";
+	
+	// Check the image name
+	if (ImageName == NULL) {
+		LastError = 9;
+		return -1;
+	}
+	
+	// Check the name length
+	if (mbstowcs(NULL, ImageName, MAX_PATH) >= MAX_PATH - strlen(FullImageName)) {
+		LastError = 10;
+		return -1;
+	}
 	
 	// Check the device ID
 	if (DeviceID < -1 || DeviceID > 9) {
@@ -227,13 +290,7 @@ int DLLCALL GhostMountDeviceWithID(int DeviceID, GhostIncidentCallback Callback,
 	}
 	
 	// Open the bus device
-	hDevice = CreateFile("\\\\.\\GhostBus",
-		0,
-		FILE_SHARE_READ | FILE_SHARE_WRITE,
-		NULL,
-		OPEN_EXISTING,
-		FILE_ATTRIBUTE_NORMAL,
-		NULL);
+	hDevice = OpenBus();
 
 	if (hDevice == INVALID_HANDLE_VALUE) {
 		LastError = 1;
@@ -241,23 +298,33 @@ int DLLCALL GhostMountDeviceWithID(int DeviceID, GhostIncidentCallback Callback,
 	}
 
 	// "Plug in" the virtual USB device
+	strncat(FullImageName, ImageName, MAX_PATH - strlen(FullImageName));
+	mbstowcs(ActualImageName, FullImageName, MAX_PATH);
+	Parameters = malloc(sizeof(REQUEST_PARAMETERS) + wcslen(ActualImageName) * sizeof(WCHAR));
+	Parameters->MagicNumber = GHOST_MAGIC_NUMBER;
+	Parameters->Opcode = OpcodeEnable;
+	Parameters->DeviceID = (UCHAR)DeviceID;
+	wcsncpy(Parameters->MountInfo.ImageName, ActualImageName, wcslen(ActualImageName));
+	Parameters->MountInfo.ImageNameLength = (USHORT)wcslen(ActualImageName);
+	Parameters->MountInfo.ImageSize.QuadPart = 100 * 1024 * 1024;
+
 	result = DeviceIoControl(hDevice,
-		IOCTL_GHOST_BUS_ENABLE_DRIVE,
-		&DeviceID,
-		sizeof(LONG),
-		&OutDeviceID,
-		sizeof(LONG),
+		IOCTL_MINIPORT_PROCESS_SERVICE_IRP,
+		Parameters,
+		sizeof(REQUEST_PARAMETERS) + wcslen(ActualImageName) * sizeof(WCHAR),
+		NULL,
+		0,
 		&BytesReturned,
 		NULL);
 
-	if (result != TRUE || BytesReturned != sizeof(LONG)) {
+	if (result != TRUE) {
 		LastError = 2;
 		return -1;
 	}
 
 	CloseHandle(hDevice);
 	
-	GhostDevice = DeviceListCreateDevice(OutDeviceID);
+	GhostDevice = DeviceListCreateDevice(DeviceID);
 	GhostDevice->Callback = Callback;
 	GhostDevice->Context = Context;
 	GhostDevice->Incidents = NULL;
@@ -281,7 +348,7 @@ int DLLCALL GhostMountDeviceWithID(int DeviceID, GhostIncidentCallback Callback,
 		GhostDevice->InfoThread = NULL;
 	}
 
-	return OutDeviceID;
+	return DeviceID;
 }
 
 int DLLCALL GhostUmountDevice(int DeviceID) {
@@ -293,6 +360,7 @@ int DLLCALL GhostUmountDevice(int DeviceID) {
 	PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
 	USHORT i;
 	PGHOST_DEVICE Device;
+	REQUEST_PARAMETERS Parameters;
 	
 	// Find context information about the device
 	Device = DeviceListGet(DeviceID);
@@ -302,13 +370,7 @@ int DLLCALL GhostUmountDevice(int DeviceID) {
 	}
 
 	// Open the bus device
-	hDevice = CreateFile("\\\\.\\GhostBus",
-		0,
-		FILE_SHARE_READ | FILE_SHARE_WRITE,
-		NULL,
-		OPEN_EXISTING,
-		FILE_ATTRIBUTE_NORMAL,
-		NULL);
+	hDevice = OpenBus();
 
 	if (hDevice == INVALID_HANDLE_VALUE) {
 		LastError = 1;
@@ -316,10 +378,14 @@ int DLLCALL GhostUmountDevice(int DeviceID) {
 	}
 
 	// "Unplug" the emulated device
+	Parameters.MagicNumber = GHOST_MAGIC_NUMBER;
+	Parameters.Opcode = OpcodeDisable;
+	Parameters.DeviceID = (UCHAR)DeviceID;
+
 	result = DeviceIoControl(hDevice,
-		IOCTL_GHOST_BUS_DISABLE_DRIVE,
-		&lID,
-		sizeof(LONG),
+		IOCTL_MINIPORT_PROCESS_SERVICE_IRP,
+		&Parameters,
+		sizeof(REQUEST_PARAMETERS),
 		NULL,
 		0,
 		&BytesReturned,

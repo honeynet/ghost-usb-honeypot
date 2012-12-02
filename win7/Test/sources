@@ -1,0 +1,12 @@
+TARGETNAME=Test
+TARGETPATH=../bin
+TARGETTYPE=PROGRAM
+
+INCLUDES=..\GhostLib
+
+SOURCES=main.c
+TARGETLIBS=..\bin\*\GhostLib.lib \
+			$(SDK_LIB_PATH)\kernel32.lib
+
+USE_MSVCRT=1
+UMTYPE=console
