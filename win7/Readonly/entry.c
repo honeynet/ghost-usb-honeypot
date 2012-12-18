@@ -41,6 +41,8 @@ NTSTATUS DriverEntry(struct _DRIVER_OBJECT *DriverObject, PUNICODE_STRING Regist
 {
 	int i;
 	
+	KdPrint((__FUNCTION__": Filter entry\n"));
+	
 	// Set the other entry points
 	DriverObject->DriverExtension->AddDevice = RoAddDevice;
 	DriverObject->DriverUnload = RoDriverUnload;
@@ -48,6 +50,7 @@ NTSTATUS DriverEntry(struct _DRIVER_OBJECT *DriverObject, PUNICODE_STRING Regist
 	for (i = 0; i <= IRP_MJ_MAXIMUM_FUNCTION; i++) {
 		DriverObject->MajorFunction[i] = RoDispatchSkip;
 	}
+	DriverObject->MajorFunction[IRP_MJ_PNP] = RoDispatchPnp;
 	
 	return STATUS_SUCCESS;
 }
@@ -65,33 +68,25 @@ NTSTATUS RoAddDevice(struct _DRIVER_OBJECT *DriverObject, struct _DEVICE_OBJECT 
 	PDEVICE_OBJECT DeviceObject;
 	PRO_DEV_EXTENSION Extension;
 	
-	if ((PhysicalDeviceObject->DeviceType == FILE_DEVICE_DISK) &&
-		(PhysicalDeviceObject->Characteristics & FILE_REMOVABLE_MEDIA)) {
-		KdPrint((__FUNCTION__": Flash drive or similar\n"));
-		// TODO: remove
-		return STATUS_SUCCESS;
-		
-		// Create a device
-		status = IoCreateDevice(DriverObject, sizeof(RO_DEV_EXTENSION), NULL,
-			PhysicalDeviceObject->DeviceType, PhysicalDeviceObject->Characteristics, FALSE, &DeviceObject);
-		if (!NT_SUCCESS(status)) {
-			KdPrint((__FUNCTION__": Device creation failed\n"));
-			return status;
-		}
-		
-		// Store the PDO
-		Extension = DeviceObject->DeviceExtension;
-		Extension->PDO = PhysicalDeviceObject;
-		
-		// Attach the device object to the stack
-		Extension->LowerDO = IoAttachDeviceToDeviceStack(DeviceObject, PhysicalDeviceObject);
-		
-		// Finish initialization
-		DeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
+	KdPrint((__FUNCTION__": New device\n"));
+	
+	// Create a device
+	status = IoCreateDevice(DriverObject, sizeof(RO_DEV_EXTENSION), NULL,
+		PhysicalDeviceObject->DeviceType, PhysicalDeviceObject->Characteristics, FALSE, &DeviceObject);
+	if (!NT_SUCCESS(status)) {
+		KdPrint((__FUNCTION__": Device creation failed\n"));
+		return status;
 	}
-	else {
-		KdPrint((__FUNCTION__": New device, but not removable\n"));
-	}
+	
+	// Store the PDO
+	Extension = DeviceObject->DeviceExtension;
+	Extension->PDO = PhysicalDeviceObject;
+	
+	// Attach the device object to the stack
+	Extension->LowerDO = IoAttachDeviceToDeviceStack(DeviceObject, PhysicalDeviceObject);
+	
+	// Finish initialization
+	DeviceObject->Flags &= ~DO_DEVICE_INITIALIZING;
 	
 	return STATUS_SUCCESS;
 }
@@ -121,7 +116,7 @@ NTSTATUS RoCompleteStartDevice(PDEVICE_OBJECT DeviceObject, PIRP Irp, PVOID Cont
 }
 
 
-NTSTATUS DispatchPnP(struct _DEVICE_OBJECT *DeviceObject, struct _IRP *Irp)
+NTSTATUS RoDispatchPnp(struct _DEVICE_OBJECT *DeviceObject, struct _IRP *Irp)
 {
 	NTSTATUS status;
 	PIO_STACK_LOCATION StackLocation = IoGetCurrentIrpStackLocation(Irp);
@@ -130,6 +125,8 @@ NTSTATUS DispatchPnP(struct _DEVICE_OBJECT *DeviceObject, struct _IRP *Irp)
 	
 	switch (StackLocation->MinorFunction) {
 		case IRP_MN_START_DEVICE:
+			KdPrint((__FUNCTION__": Start device\n"));
+		
 			// We can't skip the stack location because we register a completion routine
 			IoCopyCurrentIrpStackLocationToNext(Irp);
 			KeInitializeEvent(&SyncEvent, NotificationEvent, FALSE);
@@ -148,9 +145,9 @@ NTSTATUS DispatchPnP(struct _DEVICE_OBJECT *DeviceObject, struct _IRP *Irp)
 			else {
 				// TODO: Initialize
 				Irp->IoStatus.Status = STATUS_SUCCESS;
+				status = STATUS_SUCCESS;
 			}
 			
-			status = Irp->IoStatus.Status;
 			IoCompleteRequest(Irp, IO_NO_INCREMENT);
 			return status;
 			

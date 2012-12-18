@@ -40,6 +40,7 @@ if [ "$DSTVERSION" = "XP" ] ; then
 	cp "${SUBDIR}/ghostdrive.inf" "$DSTDIR"
 elif [ "$DSTVERSION" = "7" ] ; then
 	cp "${SUBDIR}/Miniport/ghostport.inf" "$DSTDIR"
+	cp "${SUBDIR}/Readonly/ghostreadonly.inf" "$DSTDIR"
 fi
 
 cp "${SUBDIR}"/bin/i386/*.{exe,dll,sys} "$DSTDIR"
