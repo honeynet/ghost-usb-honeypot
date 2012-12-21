@@ -78,6 +78,9 @@ NTSTATUS RoAddDevice(struct _DRIVER_OBJECT *DriverObject, struct _DEVICE_OBJECT 
 		return status;
 	}
 	
+	// Use the same flags as the underlying device
+	DeviceObject->Flags |= PhysicalDeviceObject->Flags;
+	
 	// Store the PDO
 	Extension = DeviceObject->DeviceExtension;
 	Extension->PDO = PhysicalDeviceObject;
