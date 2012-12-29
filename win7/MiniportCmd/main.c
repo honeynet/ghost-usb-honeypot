@@ -57,6 +57,7 @@ void PrintWriterInfo(PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo) {
 	for (i = 0; i < WriterInfo->ModuleNamesCount; i++) {
 		printf("%S\n", (PWCHAR) ((PCHAR) WriterInfo + WriterInfo->ModuleNameOffsets[i]));
 	}
+	printf("Process Image Base: %d\n", WriterInfo->ProcessImageBase);
 	printf("\n");
 }
 

@@ -25,8 +25,7 @@
  * 
  */
 
-#include "ghostlib.h"
-#include "devicelist.h"
+
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,6 +38,9 @@
 #include <portctl.h>
 
 #include <version.h>
+
+#include "ghostlib.h"
+#include "devicelist.h"
 
 
 static int LastError = 0;
@@ -503,3 +505,15 @@ int DLLCALL GhostGetModuleName(int DeviceID, int IncidentID, int ModuleIndex, wc
 	wcsncpy(Buffer, Name, BufferLength);
 	return Length + 1;
 }
+
+int DLLCALL GhostGetProcessImageBase(int DeviceID, int IncidentID) {
+	PGHOST_INCIDENT Incident;
+
+	Incident = _GetIncident(DeviceID, IncidentID);
+	if (NULL == Incident) {
+		return -1;
+	}
+
+	return Incident->WriterInfo->ProcessImageBase;
+}
+

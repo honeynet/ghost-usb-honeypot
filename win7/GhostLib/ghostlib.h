@@ -136,4 +136,9 @@ int DLLCALL GhostGetNumModules(int DeviceID, int IncidentID);
  */
 int DLLCALL GhostGetModuleName(int DeviceID, int IncidentID, int ModuleIndex, wchar_t *Buffer, size_t BufferLength);
 
+/*
+ * Get the image base address of the writer.
+ */
+int DLLCALL GhostGetProcessImageBase(int DeviceID, int IncidentID);
+
 #endif

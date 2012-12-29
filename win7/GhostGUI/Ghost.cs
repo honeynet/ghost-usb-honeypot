@@ -140,5 +140,7 @@ namespace GhostGUI
         private static extern int GhostGetNumModules(int DeviceID, int IncidentID);
         [DllImport("ghostlib.dll", CharSet = CharSet.Unicode)]
         private static extern int GhostGetModuleName(int DeviceID, int IncidentID, int ModuleIndex, StringBuilder ModuleName, int ModuleNameSize);
+        [DllImport("ghostlib.dll")]
+        private static extern int GhostGetProcessImageBase(int DeviceID, int IncidentID);
     }
 }

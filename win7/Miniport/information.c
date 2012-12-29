@@ -103,6 +103,8 @@ PGHOST_INFO_PROCESS_DATA GhostInfoCollectProcessData() {
 		ModuleInfo = (PLDR_DATA_TABLE_ENTRY) ModuleInfo->Links.Flink;
 	}
 	
+	ProcessInfo->ProcessImageBase = Peb->ImageBaseAddress;
+
 	return ProcessInfo;
 }
 

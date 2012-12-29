@@ -8,3 +8,4 @@ EXPORTS
 	GhostGetThreadID
 	GhostGetNumModules
 	GhostGetModuleName
+	GhostGetProcessImageBase

@@ -46,6 +46,7 @@ typedef struct _GHOST_INFO_PROCESS_DATA {
 	USHORT ModuleNamesCount;
 	PGHOST_INFO_STRING_LIST ModuleNames;
 	LIST_ENTRY ListNode;
+	DWORD ProcessImageBase;
 } GHOST_INFO_PROCESS_DATA, *PGHOST_INFO_PROCESS_DATA;
 
 
