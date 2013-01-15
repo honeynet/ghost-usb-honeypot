@@ -30,15 +30,22 @@
 #include <ntddstor.h>
 #include <ntdddisk.h>
 
+#define RO_WRITE_COMPLETION_STATUS STATUS_UNSUCCESSFUL
+#define RO_TAG 'oRhG'
+
 
 DRIVER_UNLOAD RoDriverUnload;
 DRIVER_ADD_DEVICE RoAddDevice;
 
 DRIVER_DISPATCH RoDispatchPnp;
 DRIVER_DISPATCH RoDispatchDeviceControl;
+DRIVER_DISPATCH RoDispatchWrite;
 DRIVER_DISPATCH RoDispatchSkip;
 
 IO_COMPLETION_ROUTINE RoCompleteSetEvent;
+
+
+UNICODE_STRING DriverRegistryPath;
 
 
 /*
@@ -49,6 +56,8 @@ IO_COMPLETION_ROUTINE RoCompleteSetEvent;
 NTSTATUS DriverEntry(struct _DRIVER_OBJECT *DriverObject, PUNICODE_STRING RegistryPath)
 {
 	int i;
+	PVOID Buffer = NULL;
+	USHORT BufferSize;
 	
 	KdPrint((__FUNCTION__": Filter entry\n"));
 	
@@ -61,7 +70,17 @@ NTSTATUS DriverEntry(struct _DRIVER_OBJECT *DriverObject, PUNICODE_STRING Regist
 	}
 	
 	DriverObject->MajorFunction[IRP_MJ_PNP] = RoDispatchPnp;
-	//DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = RoDispatchDeviceControl;
+	DriverObject->MajorFunction[IRP_MJ_DEVICE_CONTROL] = RoDispatchDeviceControl;
+	DriverObject->MajorFunction[IRP_MJ_WRITE] = RoDispatchWrite;
+	
+	// Save the registry path
+	BufferSize = RegistryPath->Length + wcslen(L"\\Parameters") * sizeof(WCHAR) + sizeof(WCHAR);
+	Buffer = ExAllocatePoolWithTag(NonPagedPool, BufferSize, RO_TAG);
+	if (Buffer == NULL) return STATUS_INSUFFICIENT_RESOURCES;
+	
+	RtlInitEmptyUnicodeString(&DriverRegistryPath, Buffer, BufferSize);
+	RtlCopyUnicodeString(&DriverRegistryPath, RegistryPath);
+	RtlAppendUnicodeToString(&DriverRegistryPath, L"\\Parameters");
 	
 	return STATUS_SUCCESS;
 }
@@ -75,6 +94,30 @@ NTSTATUS DriverEntry(struct _DRIVER_OBJECT *DriverObject, PUNICODE_STRING Regist
 VOID RoDriverUnload(struct _DRIVER_OBJECT *DriverObject)
 {
 	KdPrint((__FUNCTION__": Driver unload\n"));
+}
+
+
+BOOLEAN RoIsBlockEnabled()
+{
+	NTSTATUS status;
+	RTL_QUERY_REGISTRY_TABLE Table[2];
+	INT32 Value, Zero = 0;
+	
+	RtlZeroMemory(Table, sizeof(Table));
+	Table[0].Flags = RTL_QUERY_REGISTRY_DIRECT;
+	Table[0].Name = L"BlockWriteToRemovable";
+	Table[0].EntryContext = &Value;
+	Table[0].DefaultType = REG_DWORD;
+	Table[0].DefaultData = &Zero;
+	Table[0].DefaultLength = sizeof(Zero);
+	
+	status = RtlQueryRegistryValues(RTL_REGISTRY_ABSOLUTE, DriverRegistryPath.Buffer, Table, NULL, NULL);
+	if (!NT_SUCCESS(status)) {
+		KdPrint((__FUNCTION__": Registry query failed\n"));
+		return FALSE;
+	}
+	
+	return (Value > 0);
 }
 
 
@@ -110,6 +153,11 @@ NTSTATUS RoAddDevice(struct _DRIVER_OBJECT *DriverObject, struct _DEVICE_OBJECT 
 	// Store the PDO
 	Extension = DeviceObject->DeviceExtension;
 	Extension->PDO = PhysicalDeviceObject;
+	Extension->Removable = FALSE;
+	
+	// Find out whether we are to block write requests for removable devices
+	Extension->Block = RoIsBlockEnabled();
+	KdPrint((__FUNCTION__": Blocking write requests for this device%s enabled\n", Extension->Block ? "" : " not"));
 	
 	// Attach the device object to the stack
 	Extension->LowerDO = IoAttachDeviceToDeviceStack(DeviceObject, PhysicalDeviceObject);
@@ -194,7 +242,6 @@ NTSTATUS RoDispatchPnp(struct _DEVICE_OBJECT *DeviceObject, struct _IRP *Irp)
 				KdPrint((__FUNCTION__": Someone failed the start request\n"));
 			}
 			else {
-				// TODO: Initialize
 				Irp->IoStatus.Status = STATUS_SUCCESS;
 				status = STATUS_SUCCESS;
 			}
@@ -240,8 +287,14 @@ NTSTATUS RoDispatchDeviceControl(struct _DEVICE_OBJECT *DeviceObject, struct _IR
 				&& Query->QueryType == PropertyStandardQuery
 				&& StackLocation->Parameters.DeviceIoControl.OutputBufferLength > 0)
 			{
+				PSTORAGE_DEVICE_DESCRIPTOR Descriptor = Irp->AssociatedIrp.SystemBuffer;
+				
 				status = RoWaitForIrpCompletion(Irp, Extension->LowerDO);
 				KdPrint((__FUNCTION__": Query for device properties\n"));
+				if (Descriptor->Size >= sizeof(STORAGE_DEVICE_DESCRIPTOR)) {
+					KdPrint((__FUNCTION__": Device is%s removable\n", Descriptor->RemovableMedia ? "" : " not"));
+					Extension->Removable = Descriptor->RemovableMedia;
+				}
 				IoCompleteRequest(Irp, IO_NO_INCREMENT);
 				return status;
 			}
@@ -250,15 +303,30 @@ NTSTATUS RoDispatchDeviceControl(struct _DEVICE_OBJECT *DeviceObject, struct _IR
 			}
 		}
 		
-		case IOCTL_DISK_IS_WRITABLE:
+		/*case IOCTL_DISK_IS_WRITABLE:
 			status = RoWaitForIrpCompletion(Irp, Extension->LowerDO);
 			KdPrint((__FUNCTION__": Device is%s writable\n", NT_SUCCESS(status) ? "" : " not"));
-			Irp->IoStatus.Status = STATUS_MEDIA_WRITE_PROTECTED;
+			//Irp->IoStatus.Status = STATUS_MEDIA_WRITE_PROTECTED;
 			IoCompleteRequest(Irp, IO_NO_INCREMENT);
-			//return status;
-			return STATUS_MEDIA_WRITE_PROTECTED;
+			return status;
+			//return STATUS_MEDIA_WRITE_PROTECTED;*/
 		
 		default:
 			return RoDispatchSkip(DeviceObject, Irp);
+	}
+}
+
+
+NTSTATUS RoDispatchWrite(struct _DEVICE_OBJECT *DeviceObject, struct _IRP *Irp)
+{
+	PRO_DEV_EXTENSION Extension = DeviceObject->DeviceExtension;
+	
+	if (Extension->Block && Extension->Removable) {
+		Irp->IoStatus.Status = RO_WRITE_COMPLETION_STATUS;
+		IoCompleteRequest(Irp, IO_NO_INCREMENT);
+		return RO_WRITE_COMPLETION_STATUS;
+	}
+	else {
+		return RoDispatchSkip(DeviceObject, Irp);
 	}
 }

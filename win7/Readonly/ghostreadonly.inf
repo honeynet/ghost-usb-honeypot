@@ -68,6 +68,11 @@ StartType = 0
 ErrorControl = 1
 ServiceBinary = %12%\ghostreadonly.sys
 LoadOrderGroup = "PnP Filter"
+AddReg = GhostReadonly.Parameters
+
+
+[GhostReadonly.Parameters]
+HKR,Parameters,BlockWriteToRemovable,0x00010001,0
 
 
 [Strings]
