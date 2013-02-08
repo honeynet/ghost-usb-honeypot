@@ -38,15 +38,15 @@ typedef struct _GHOST_DRIVE_WRITER_INFO_RESPONSE {
 	
 	HANDLE ProcessId;
 	HANDLE ThreadId;
-	DWORD ProcessImageBase;
+	ULONG ProcessImageBase;
 	USHORT ModuleNamesCount;
 	SIZE_T ModuleNameOffsets[1];
 	
 } GHOST_DRIVE_WRITER_INFO_RESPONSE, *PGHOST_DRIVE_WRITER_INFO_RESPONSE;
 
-#endif
-
 #ifdef DEFINE_GUID
 // {171721E5-8A83-4a8b-AE95-2466F6429466}
 DEFINE_GUID(GUID_DEVINTERFACE_GHOST, 0x171721e5, 0x8a83, 0x4a8b, 0xae, 0x95, 0x24, 0x66, 0xf6, 0x42, 0x94, 0x66);
+#endif
+
 #endif

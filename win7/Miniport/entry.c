@@ -29,12 +29,13 @@
 #include <storport.h>
 #include <ntddscsi.h>
 
+#include <initguid.h>
+#include "portctl.h"
+
 #include "extensions.h"
 #include "file_io.h"
 #include "io_worker.h"
 #include "information.h"
-#include <initguid.h>
-#include "portctl.h"
 
 #define GHOST_VENDOR_ID "Ghost"
 #define GHOST_PRODUCT_ID "GhostPort"
