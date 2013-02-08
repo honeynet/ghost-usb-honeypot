@@ -157,6 +157,7 @@ BOOLEAN GhostInfoStoreProcessDataInBuffer(PGHOST_INFO_PROCESS_DATA ProcessInfo, 
 	Response = Buffer;
 	Response->ProcessId = ProcessInfo->ProcessId;
 	Response->ThreadId = ProcessInfo->ThreadId;
+	Response->ProcessImageBase = ProcessInfo->ProcessImageBase;
 	Response->ModuleNamesCount = ProcessInfo->ModuleNamesCount;
 	
 	// Copy the module names

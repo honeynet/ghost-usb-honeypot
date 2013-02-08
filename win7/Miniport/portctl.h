@@ -38,9 +38,9 @@ typedef struct _GHOST_DRIVE_WRITER_INFO_RESPONSE {
 	
 	HANDLE ProcessId;
 	HANDLE ThreadId;
+	DWORD ProcessImageBase;
 	USHORT ModuleNamesCount;
 	SIZE_T ModuleNameOffsets[1];
-	DWORD ProcessImageBase;
 	
 } GHOST_DRIVE_WRITER_INFO_RESPONSE, *PGHOST_DRIVE_WRITER_INFO_RESPONSE;
 
