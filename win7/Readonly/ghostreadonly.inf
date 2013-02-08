@@ -1,0 +1,84 @@
+
+; Ghost - A honeypot for USB malware
+; Copyright (C) 2011-2012  Sebastian Poeplau (sebastian.poeplau@gmail.com)
+; 
+; This program is free software: you can redistribute it and/or modify
+; it under the terms of the GNU General Public License as published by
+; the Free Software Foundation, either version 3 of the License, or
+; (at your option) any later version.
+; 
+; This program is distributed in the hope that it will be useful,
+; but WITHOUT ANY WARRANTY; without even the implied warranty of
+; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+; GNU General Public License for more details.
+; 
+; You should have received a copy of the GNU General Public License
+; along with this program. If not, see <http://www.gnu.org/licenses/>.
+; 
+; Additional permission under GNU GPL version 3 section 7
+; 
+; If you modify this Program, or any covered work, by linking or combining
+; it with the Windows Driver Frameworks (or a modified version of that library),
+; containing parts covered by the terms of the Microsoft Software License Terms -
+; Microsoft Windows Driver Kit, the licensors of this Program grant you additional
+; permission to convey the resulting work.
+
+
+[Version]
+Signature = "$Windows NT$"
+Class = DiskDrive
+ClassGUID = {4D36E967-E325-11CE-BFC1-08002BE10318}
+;ClassGUID = {4D36E97B-E325-11CE-BFC1-08002BE10318}
+Provider = %Ghost%
+DriverVer=12/17/2012,0.1
+
+
+[SourceDisksNames]
+1 = %DiscDescription%
+
+
+[SourceDisksFiles]
+ghostreadonly.sys = 1
+
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+
+[DefaultInstall]
+CopyFiles = @ghostreadonly.sys
+AddReg = GhostReadonly.AddReg
+
+
+[GhostReadonly.AddReg]
+HKLM,System\CurrentControlSet\Control\Class\{4d36e967-e325-11ce-bfc1-08002be10318},UpperFilters,0x00010008,ghostreadonly
+;HKLM,System\CurrentControlSet\Control\Class\{4d36e97b-e325-11ce-bfc1-08002be10318},UpperFilters,0x00010008,ghostreadonly
+
+
+[DefaultInstall.Services]
+AddService = ghostreadonly,,GhostReadonly.Service
+
+
+[GhostReadonly.Service]
+DisplayName = %ServiceName%
+Description = %ServiceDesc%
+ServiceType = 1
+StartType = 0
+;StartType = 3
+ErrorControl = 1
+ServiceBinary = %12%\ghostreadonly.sys
+LoadOrderGroup = "PnP Filter"
+AddReg = GhostReadonly.Parameters
+
+
+[GhostReadonly.Parameters]
+HKR,Parameters,BlockWriteToRemovable,0x00010001,0
+
+
+[Strings]
+Ghost = "Ghost USB honeypot"
+DiscDescription = "GhostPort driver disk 1"
+ServiceName = "GhostReadonly filter"
+ServiceDesc = "Make flash drives read-only"
+
+
