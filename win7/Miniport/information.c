@@ -45,7 +45,7 @@ PGHOST_INFO_PROCESS_DATA GhostInfoCollectProcessData() {
 	PGHOST_INFO_STRING_LIST LastEntry = NULL;
 
 	// Allocate memory to store the information
-	ProcessInfo = ExAllocatePoolWithTag(PagedPool, sizeof(GHOST_INFO_PROCESS_DATA), GHOST_PORT_TAG);
+	ProcessInfo = ExAllocatePoolWithTag(NonPagedPool, sizeof(GHOST_INFO_PROCESS_DATA), GHOST_PORT_TAG);
 	ProcessInfo->ProcessId = PsGetCurrentProcessId();
 	ProcessInfo->ThreadId = PsGetCurrentThreadId();
 	ProcessInfo->ModuleNames = NULL;
@@ -75,8 +75,8 @@ PGHOST_INFO_PROCESS_DATA GhostInfoCollectProcessData() {
 		
 		// Copy the DLL's name
 		BufferLength = ModuleInfo->FullDllName.Length + 2;
-		List = ExAllocatePoolWithTag(PagedPool, sizeof(GHOST_INFO_STRING_LIST), GHOST_PORT_TAG);
-		Buffer = ExAllocatePoolWithTag(PagedPool, BufferLength, GHOST_PORT_TAG);
+		List = ExAllocatePoolWithTag(NonPagedPool, sizeof(GHOST_INFO_STRING_LIST), GHOST_PORT_TAG);
+		Buffer = ExAllocatePoolWithTag(NonPagedPool, BufferLength, GHOST_PORT_TAG);
 		Buffer[BufferLength - 2] = 0;
         Buffer[BufferLength - 1] = 0;
 		RtlInitEmptyUnicodeString(&List->String, (PWCHAR) Buffer, BufferLength);
