@@ -107,6 +107,8 @@ const char * DLLCALL GhostGetErrorDescription(int Error);
  * ----------------------------------------------------------------
  */
 
+int GhostWaitForIncident(int DeviceID, USHORT NextIncidentID);
+
 /*
  * Get the process ID of the writer or -1 on error.
  */
