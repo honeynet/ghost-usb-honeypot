@@ -188,7 +188,7 @@ void mount_image(int ID, const char *ImageName) {
 	}
 	else {
 		strncat(Tmp, ImageName, 1024 - strlen(Tmp));
-		mbstowcs(ActualImageName, Tmp, sizeof(ActualImageName));
+		mbstowcs(ActualImageName, Tmp, sizeof(ActualImageName) / sizeof(WCHAR));
 	}
 	
 	printf("Using image %ls\n", ActualImageName);

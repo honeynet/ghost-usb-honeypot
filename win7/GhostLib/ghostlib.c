@@ -135,7 +135,7 @@ HANDLE OpenBus() {
 }*/
 
 
-PGHOST_INCIDENT FetchIncidentInfo(PGHOST_DEVICE GhostDevice, USHORT IncidentID, HANDLE BreakEvent) {
+PGHOST_INCIDENT FetchIncidentInfo(PGHOST_DEVICE GhostDevice, int IncidentID) {
 	SIZE_T RequiredSize;
 	DWORD BytesReturned;
 	PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
@@ -152,7 +152,7 @@ PGHOST_INCIDENT FetchIncidentInfo(PGHOST_DEVICE GhostDevice, USHORT IncidentID, 
 	}
 	
 	Events[0] = Overlapped.hEvent;
-	Events[1] = BreakEvent;
+	Events[1] = GhostDevice->StopEvent;
 	
 	// Open the device
 	hDevice = OpenBus();
@@ -165,7 +165,7 @@ PGHOST_INCIDENT FetchIncidentInfo(PGHOST_DEVICE GhostDevice, USHORT IncidentID, 
 	RequestParams.MagicNumber = GHOST_MAGIC_NUMBER;
 	RequestParams.DeviceID = (UCHAR)GhostDevice->DeviceID;
 	RequestParams.WriterInfoParameters.BlockingCall = TRUE;
-	RequestParams.WriterInfoParameters.WriterIndex = IncidentID;
+	RequestParams.WriterInfoParameters.WriterIndex = (USHORT)IncidentID;
 
 	DeviceIoControl(hDevice,
 		IOCTL_MINIPORT_PROCESS_SERVICE_IRP,
@@ -177,7 +177,7 @@ PGHOST_INCIDENT FetchIncidentInfo(PGHOST_DEVICE GhostDevice, USHORT IncidentID, 
 		&Overlapped);
 	
 	// Wait until either we've received information or we're told to terminate
-	if (WaitForMultipleObjects(Events[1] == NULL ? 1 : 2, Events, FALSE, INFINITE) == WAIT_OBJECT_0 + 1) {
+	if (WaitForMultipleObjects(2, Events, FALSE, INFINITE) == WAIT_OBJECT_0 + 1) {
 		return NULL;
 	}
 
@@ -206,7 +206,7 @@ PGHOST_INCIDENT FetchIncidentInfo(PGHOST_DEVICE GhostDevice, USHORT IncidentID, 
 		&Overlapped);
 		
 	// Wait until either we've received information or we're told to terminate
-	if (WaitForMultipleObjects(Events[1] == NULL ? 1 : 2, Events, FALSE, INFINITE) == WAIT_OBJECT_0 + 1) {
+	if (WaitForMultipleObjects(2, Events, FALSE, INFINITE) == WAIT_OBJECT_0 + 1) {
 		return NULL;
 	}
 
@@ -251,7 +251,7 @@ DWORD WINAPI InfoThread(LPVOID Parameter) {
 	
 	// Wait for writer information
 	while (1) {
-		Incident = FetchIncidentInfo(GhostDevice, i, GhostDevice->StopEvent);
+		Incident = FetchIncidentInfo(GhostDevice, i);
 		if (Incident == NULL) {
 			// TODO: Error code?
 			return -1;
@@ -270,7 +270,7 @@ DWORD WINAPI InfoThread(LPVOID Parameter) {
 }
 
 
-int GhostWaitForIncident(int DeviceID, USHORT NextIncidentID) {
+int GhostWaitForIncident(int DeviceID, int NextIncidentID) {
 	PGHOST_DEVICE GhostDevice;
 	PGHOST_INCIDENT Incident;
 	
@@ -280,7 +280,7 @@ int GhostWaitForIncident(int DeviceID, USHORT NextIncidentID) {
 		return -1;
 	}
 	
-	Incident = FetchIncidentInfo(GhostDevice, NextIncidentID, NULL);
+	Incident = FetchIncidentInfo(GhostDevice, NextIncidentID);
 	if (Incident == NULL) {
 		// TODO: Error code?
 		return -1;
@@ -362,24 +362,23 @@ int DLLCALL GhostMountDeviceWithID(int DeviceID, GhostIncidentCallback Callback,
 	GhostDevice->Callback = Callback;
 	GhostDevice->Context = Context;
 	GhostDevice->Incidents = NULL;
+	GhostDevice->InfoThread = NULL;
+	
+	GhostDevice->StopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+	if (GhostDevice->StopEvent == NULL) {
+		LastError = 6;
+		return -1;
+	}
+	
 	DeviceListAdd(GhostDevice);
 	
 	// Start a thread that waits for incidents
 	if (Callback != NULL) {
-		GhostDevice->StopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-		if (GhostDevice->StopEvent == NULL) {
-			LastError = 6;
-			return -1;
-		}
 		GhostDevice->InfoThread = CreateThread(NULL, 0, InfoThread, GhostDevice, 0, NULL);
 		if (GhostDevice->InfoThread == NULL) {
 			LastError = 4;
 			return -1;
 		}
-	}
-	else {
-		GhostDevice->StopEvent = NULL;
-		GhostDevice->InfoThread = NULL;
 	}
 
 	return DeviceID;
@@ -433,12 +432,12 @@ int DLLCALL GhostUmountDevice(int DeviceID) {
 	CloseHandle(hDevice);
 	
 	// Signal the info thread to terminate
-	if (Device->InfoThread != NULL) {
-		if (!SetEvent(Device->StopEvent)) {
-			LastError = 8;
-			return -1;
-		}
+	if (!SetEvent(Device->StopEvent)) {
+		LastError = 8;
+		return -1;
+	}
 		
+	if (Device->InfoThread != NULL) {
 		// Wait until the thread has terminated
 		WaitForSingleObject(Device->InfoThread, INFINITE);
 		CloseHandle(Device->StopEvent);
