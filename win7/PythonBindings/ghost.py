@@ -3,20 +3,45 @@ import time
 import threading
 
 class Ghost:
+	"""
+	This class allows you to control Ghost with Python and retrieve results in Python data structures.
+	In order to use it, just override onincident() to do something useful.
+	"""
+	
 	def __init__(self, deviceid):
+		if deviceid < 0 or deviceid > 9:
+			raise ValueError("Device ID must be between 0 and 9")
 		self._deviceid = deviceid
+		self._imagefile = "c:\gd%d.img" % deviceid
 		self._timeout = 20
 	
-	def umounttimer(self):
+	def _umounttimer(self):
 		time.sleep(self._timeout)
-		print "Unloading..."
+		#print "Unloading..."
 		ghostlib.GhostUmountDevice(self._deviceid)
+		
+	def settimeout(seconds):
+		"""
+		Set the timeout in seconds after which the device is removed from the system.
+		"""
+		if seconds > 0:
+			self._timeout = seconds
+			
+	def setimagefile(filename):
+		"""
+		Specify the location of the image file. Must be an absolute path, but the file doesn't have to exist.
+		"""
+		self._imagefile = filename
 	
 	def run(self):
-		print "Mounting..."
-		ghostlib.GhostMountDeviceWithID(self._deviceid, None, None, "c:\gd0.img")
-		threading.Thread(target = self.umounttimer).start()
-		print "Waiting for incidents..."
+		"""
+		Mount the virtual device, wait for a certain time and remove the device. In case of write requests,
+		onincident() is called.
+		"""
+		#print "Mounting..."
+		ghostlib.GhostMountDeviceWithID(self._deviceid, None, None, self._imagefile)
+		threading.Thread(target = self._umounttimer).start()
+		#print "Waiting for incidents..."
 		incident = 0
 		while True:
 			if ghostlib.GhostWaitForIncident(self._deviceid, incident) < 0:
@@ -28,25 +53,24 @@ class Ghost:
 			details["TID"] = ghostlib.GhostGetThreadID(self._deviceid, incident)
 			details["Modules"] = []
 			nummodules = ghostlib.GhostGetNumModules(self._deviceid, incident)
-			print nummodules, "modules"
-			name = create_unicode_buffer('\000' * 1024)
-			print ghostlib.GhostGetModuleName(self._deviceid, incident, 0, name, 1024)
-			print "broken?"
-			print name.value
-			#for i in range(nummodules):
-			#	name = create_string_buffer('\000' * 1024)
-			#	if ghostlib.GhostGetModuleName(self._deviceid, incident, i, name, 1024) > 0:
-			#		details["Modules"].append(str(name))
+			for i in range(nummodules):
+				name = create_unicode_buffer('\000' * 1024)
+				if ghostlib.GhostGetModuleName(self._deviceid, incident, i, name, 1024) > 0:
+					details["Modules"].append(name.value)
 			self.onincident(details)
 			incident += 1
 		
 	def onincident(self, details):
-		print details["PID"], details["TID"]
-		#for name in details["Modules"]:
-		#	print '\t', name
+		"""
+		This routine is called whenever data is written to the virtual device. The default implementation
+		just prints some info.
+		"""
+		print "Write access from PID %d, TID %d" % (details["PID"], details["TID"])
+		if len(details["Modules"]) > 0:
+			print "\t", details["Modules"][0]
 
 # Load the DLL
-ghostlib = windll.LoadLibrary(r"..\bin\i386\GhostLib.dll")
+ghostlib = windll.LoadLibrary("GhostLib.dll")
 ghostgeterrordescription = ghostlib.GhostGetErrorDescription
 ghostgeterrordescription.restype = c_char_p
 kernel32 = windll.LoadLibrary("kernel32.dll")
