@@ -9,3 +9,4 @@ EXPORTS
 	GhostGetNumModules
 	GhostGetModuleName
 	GhostGetProcessImageBase
+	GhostWaitForIncident

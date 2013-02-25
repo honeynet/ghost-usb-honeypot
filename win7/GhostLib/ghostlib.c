@@ -135,112 +135,127 @@ HANDLE OpenBus() {
 }*/
 
 
-DWORD WINAPI InfoThread(LPVOID Parameter) {
-	PGHOST_DEVICE GhostDevice;
-	char dosdevice[] = "\\\\.\\GhostBus";
-	HANDLE hDevice;
+PGHOST_INCIDENT FetchIncidentInfo(PGHOST_DEVICE GhostDevice, int IncidentID) {
+	SIZE_T RequiredSize;
+	DWORD BytesReturned;
 	PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
-	USHORT i = 0;
+	REQUEST_PARAMETERS RequestParams;
+	HANDLE hDevice;
 	PGHOST_INCIDENT Incident;
 	OVERLAPPED Overlapped;
 	HANDLE Events[2];
 	
-	if (Parameter == NULL) {
-		return -1;
-	}
-
 	ZeroMemory(&Overlapped, sizeof(OVERLAPPED));
 	Overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 	if (Overlapped.hEvent == NULL) {
-		return -1;
+		return NULL;
 	}
 	
-	GhostDevice = (PGHOST_DEVICE) Parameter;
-	
-	Events[0] = GhostDevice->StopEvent;
-	Events[1] = Overlapped.hEvent;
+	Events[0] = Overlapped.hEvent;
+	Events[1] = GhostDevice->StopEvent;
 	
 	// Open the device
 	hDevice = OpenBus();
 
 	if (hDevice == INVALID_HANDLE_VALUE) {
+		return NULL;
+	}
+
+	RequestParams.Opcode = OpcodeGetWriterInfo;
+	RequestParams.MagicNumber = GHOST_MAGIC_NUMBER;
+	RequestParams.DeviceID = (UCHAR)GhostDevice->DeviceID;
+	RequestParams.WriterInfoParameters.BlockingCall = TRUE;
+	RequestParams.WriterInfoParameters.WriterIndex = (USHORT)IncidentID;
+
+	DeviceIoControl(hDevice,
+		IOCTL_MINIPORT_PROCESS_SERVICE_IRP,
+		&RequestParams,
+		sizeof(REQUEST_PARAMETERS),
+		&RequiredSize,
+		sizeof(SIZE_T),
+		&BytesReturned,
+		&Overlapped);
+	
+	// Wait until either we've received information or we're told to terminate
+	if (WaitForMultipleObjects(2, Events, FALSE, INFINITE) == WAIT_OBJECT_0 + 1) {
+		return NULL;
+	}
+
+	if (Overlapped.Internal != 0) {
+		// Probably no more data available
+		//printf("No more data\n");
+		return NULL;
+	}
+	
+	ResetEvent(Overlapped.hEvent);
+
+	//printf("%d bytes returned\n", BytesReturned);
+	//printf("Need %d bytes\n", RequiredSize);
+
+	WriterInfo = malloc(RequiredSize);
+	ZeroMemory(WriterInfo, RequiredSize);
+	//printf("Retrieving actual data...\n");
+
+	DeviceIoControl(hDevice,
+		IOCTL_MINIPORT_PROCESS_SERVICE_IRP,
+		&RequestParams,
+		sizeof(REQUEST_PARAMETERS),
+		WriterInfo,
+		RequiredSize,
+		&BytesReturned,
+		&Overlapped);
+		
+	// Wait until either we've received information or we're told to terminate
+	if (WaitForMultipleObjects(2, Events, FALSE, INFINITE) == WAIT_OBJECT_0 + 1) {
+		return NULL;
+	}
+
+	if (Overlapped.Internal != 0) {
+		//printf("Error: IOCTL code failed: %d\n", GetLastError());
+		free(WriterInfo);
+		return NULL;
+	}
+	
+	ResetEvent(Overlapped.hEvent);
+	
+	// Are we supposed to terminate?
+	/*if (WaitForSingleObject(GhostDevice->StopEvent, 0) == WAIT_OBJECT_0) {
+		break;
+	}*/
+	
+	Incident = malloc(sizeof(GHOST_INCIDENT));
+	Incident->IncidentID = IncidentID;
+	Incident->WriterInfo = WriterInfo;
+	Incident->Next = GhostDevice->Incidents;
+	GhostDevice->Incidents = Incident;
+	
+	CancelIo(hDevice);
+	CloseHandle(hDevice);
+	CloseHandle(Overlapped.hEvent);
+	
+	return Incident;
+}
+
+
+DWORD WINAPI InfoThread(LPVOID Parameter) {
+	PGHOST_DEVICE GhostDevice;
+	//char dosdevice[] = "\\\\.\\GhostBus";
+	USHORT i = 0;
+	PGHOST_INCIDENT Incident;
+	
+	if (Parameter == NULL) {
 		return -1;
 	}
 	
+	GhostDevice = (PGHOST_DEVICE) Parameter;
+	
 	// Wait for writer information
 	while (1) {
-		SIZE_T RequiredSize;
-		DWORD BytesReturned;
-		PGHOST_DRIVE_WRITER_INFO_RESPONSE WriterInfo;
-		REQUEST_PARAMETERS RequestParams;
-
-		RequestParams.Opcode = OpcodeGetWriterInfo;
-		RequestParams.MagicNumber = GHOST_MAGIC_NUMBER;
-		RequestParams.DeviceID = (UCHAR)GhostDevice->DeviceID;
-		RequestParams.WriterInfoParameters.BlockingCall = TRUE;
-		RequestParams.WriterInfoParameters.WriterIndex = i;
-
-		DeviceIoControl(hDevice,
-			IOCTL_MINIPORT_PROCESS_SERVICE_IRP,
-			&RequestParams,
-			sizeof(REQUEST_PARAMETERS),
-			&RequiredSize,
-			sizeof(SIZE_T),
-			&BytesReturned,
-			&Overlapped);
-		
-		// Wait until either we've received information or we're told to terminate
-		if (WaitForMultipleObjects(2, Events, FALSE, INFINITE) == WAIT_OBJECT_0) {
-			break;
+		Incident = FetchIncidentInfo(GhostDevice, i);
+		if (Incident == NULL) {
+			// TODO: Error code?
+			return -1;
 		}
-
-		if (Overlapped.Internal != 0) {
-			// Probably no more data available
-			//printf("No more data\n");
-			break;
-		}
-		
-		ResetEvent(Overlapped.hEvent);
-
-		//printf("%d bytes returned\n", BytesReturned);
-		//printf("Need %d bytes\n", RequiredSize);
-
-		WriterInfo = malloc(RequiredSize);
-		ZeroMemory(WriterInfo, RequiredSize);
-		//printf("Retrieving actual data...\n");
-
-		DeviceIoControl(hDevice,
-			IOCTL_MINIPORT_PROCESS_SERVICE_IRP,
-			&RequestParams,
-			sizeof(REQUEST_PARAMETERS),
-			WriterInfo,
-			RequiredSize,
-			&BytesReturned,
-			&Overlapped);
-			
-		// Wait until either we've received information or we're told to terminate
-		if (WaitForMultipleObjects(2, Events, FALSE, INFINITE) == WAIT_OBJECT_0) {
-			break;
-		}
-
-		if (Overlapped.Internal != 0) {
-			//printf("Error: IOCTL code failed: %d\n", GetLastError());
-			free(WriterInfo);
-			break;
-		}
-		
-		ResetEvent(Overlapped.hEvent);
-		
-		// Are we supposed to terminate?
-		/*if (WaitForSingleObject(GhostDevice->StopEvent, 0) == WAIT_OBJECT_0) {
-			break;
-		}*/
-		
-		Incident = malloc(sizeof(GHOST_INCIDENT));
-		Incident->IncidentID = i;
-		Incident->WriterInfo = WriterInfo;
-		Incident->Next = GhostDevice->Incidents;
-		GhostDevice->Incidents = Incident;
 		
 		// Invoke the callback function
 		//
@@ -251,10 +266,27 @@ DWORD WINAPI InfoThread(LPVOID Parameter) {
 		i++;
 	}
 	
-	CancelIo(hDevice);
-	CloseHandle(hDevice);
-	CloseHandle(Overlapped.hEvent);
 	return 0;
+}
+
+
+int GhostWaitForIncident(int DeviceID, int NextIncidentID) {
+	PGHOST_DEVICE GhostDevice;
+	PGHOST_INCIDENT Incident;
+	
+	GhostDevice = DeviceListGet(DeviceID);
+	if (GhostDevice == NULL) {
+		LastError = 5;
+		return -1;
+	}
+	
+	Incident = FetchIncidentInfo(GhostDevice, NextIncidentID);
+	if (Incident == NULL) {
+		// TODO: Error code?
+		return -1;
+	}
+	
+	return Incident->IncidentID;
 }
 
 
@@ -330,24 +362,23 @@ int DLLCALL GhostMountDeviceWithID(int DeviceID, GhostIncidentCallback Callback,
 	GhostDevice->Callback = Callback;
 	GhostDevice->Context = Context;
 	GhostDevice->Incidents = NULL;
+	GhostDevice->InfoThread = NULL;
+	
+	GhostDevice->StopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+	if (GhostDevice->StopEvent == NULL) {
+		LastError = 6;
+		return -1;
+	}
+	
 	DeviceListAdd(GhostDevice);
 	
 	// Start a thread that waits for incidents
 	if (Callback != NULL) {
-		GhostDevice->StopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-		if (GhostDevice->StopEvent == NULL) {
-			LastError = 6;
-			return -1;
-		}
 		GhostDevice->InfoThread = CreateThread(NULL, 0, InfoThread, GhostDevice, 0, NULL);
 		if (GhostDevice->InfoThread == NULL) {
 			LastError = 4;
 			return -1;
 		}
-	}
-	else {
-		GhostDevice->StopEvent = NULL;
-		GhostDevice->InfoThread = NULL;
 	}
 
 	return DeviceID;
@@ -401,12 +432,12 @@ int DLLCALL GhostUmountDevice(int DeviceID) {
 	CloseHandle(hDevice);
 	
 	// Signal the info thread to terminate
-	if (Device->InfoThread != NULL) {
-		if (!SetEvent(Device->StopEvent)) {
-			LastError = 8;
-			return -1;
-		}
+	if (!SetEvent(Device->StopEvent)) {
+		LastError = 8;
+		return -1;
+	}
 		
+	if (Device->InfoThread != NULL) {
 		// Wait until the thread has terminated
 		WaitForSingleObject(Device->InfoThread, INFINITE);
 		CloseHandle(Device->StopEvent);

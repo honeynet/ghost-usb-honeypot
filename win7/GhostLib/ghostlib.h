@@ -63,6 +63,7 @@ typedef void (DLLCALL *GhostIncidentCallback) (int, int, void*);
  * whenever data is written to the emulated device by a process that has not been
  * reported before. Its signature should
  * be of the type void MyCallback(int IncidentID, void *Context).
+ * Alternatively, you may specify NULL for the callback and use GhostWaitForIncident.
  *
  * On success, the function returns the new device's ID. Otherwise, it returns -1
  * and you can obtain a description of the error using the library's
@@ -106,6 +107,13 @@ const char * DLLCALL GhostGetErrorDescription(int Error);
  * Incident details
  * ----------------------------------------------------------------
  */
+
+
+/*
+ * Wait for incidents if you did not register a callback function
+ * when mounting the device.
+ */
+int GhostWaitForIncident(int DeviceID, int NextIncidentID);
 
 /*
  * Get the process ID of the writer or -1 on error.
