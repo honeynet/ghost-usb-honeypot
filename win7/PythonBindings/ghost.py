@@ -20,23 +20,23 @@ class Ghost:
 		#print "Unloading..."
 		ghostlib.GhostUmountDevice(self._deviceid)
 		
-	def settimeout(seconds):
+	def settimeout(self, seconds):
 		"""
 		Set the timeout in seconds after which the device is removed from the system.
 		"""
 		if seconds > 0:
 			self._timeout = seconds
 			
-	def setimagefile(filename):
+	def setimagefile(self, filename):
 		"""
 		Specify the location of the image file. Must be an absolute path, but the file doesn't have to exist.
 		"""
 		self._imagefile = filename
 	
-	def run(self):
+	def run(self, onincident):
 		"""
 		Mount the virtual device, wait for a certain time and remove the device. In case of write requests,
-		onincident() is called.
+		onincident(details) is called.
 		"""
 		#print "Mounting..."
 		ghostlib.GhostMountDeviceWithID(self._deviceid, None, None, self._imagefile)
@@ -57,17 +57,9 @@ class Ghost:
 				name = create_unicode_buffer('\000' * 1024)
 				if ghostlib.GhostGetModuleName(self._deviceid, incident, i, name, 1024) > 0:
 					details["Modules"].append(name.value)
-			self.onincident(details)
+			onincident(details)
 			incident += 1
-		
-	def onincident(self, details):
-		"""
-		This routine is called whenever data is written to the virtual device. The default implementation
-		just prints some info.
-		"""
-		print "Write access from PID %d, TID %d" % (details["PID"], details["TID"])
-		if len(details["Modules"]) > 0:
-			print "\t", details["Modules"][0]
+			
 
 # Load the DLL
 ghostlib = windll.LoadLibrary("GhostLib.dll")
@@ -76,6 +68,11 @@ ghostgeterrordescription.restype = c_char_p
 kernel32 = windll.LoadLibrary("kernel32.dll")
 
 if __name__ == "__main__":
+	def onincident(self, details):
+		print "Write access from PID %d, TID %d" % (details["PID"], details["TID"])
+		if len(details["Modules"]) > 0:
+			print "\t", details["Modules"][0]
+			
 	print "Test..."
 	g = Ghost(0)
-	g.run()
+	g.run(onincident)
