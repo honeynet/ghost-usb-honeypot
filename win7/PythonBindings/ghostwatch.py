@@ -14,11 +14,11 @@ GHOST_DURATION = 40
 GHOST_DEVICE_ID = 0
 
 # HPfeeds parameters
-HPFEEDS_HOST = '10.0.0.2'
-HPFEEDS_PORT = 10000
-HPFEEDS_IDENT = 'me'
-HPFEEDS_SECRET = 'secret'
-HPFEEDS_CHANNEL = 'test'
+HPFEEDS_HOST = 'hpfriends.honeycloud.net'
+HPFEEDS_PORT = 20000
+HPFEEDS_IDENT = 'wWLnJ949'
+HPFEEDS_SECRET = 'yjniQJ6WzZybYy6q'
+HPFEEDS_CHANNEL = 'ghost.reports'
 
 
 if LOGFILE is not None:
