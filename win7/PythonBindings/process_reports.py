@@ -24,6 +24,7 @@ def on_message(ident, chan, payload):
 		if status is None:
 			# Create a new status page
 			status = {'ident': str(ident)}
+		# The hostname may change, so update it here
 		status['hostname'] = status_update['hostname']
 		status['last_seen'] = datetime.datetime.utcnow()
 		db.machines.save(status)
@@ -33,6 +34,7 @@ def on_message(ident, chan, payload):
 		report = json.loads(str(payload))
 		report['Ident'] = str(ident)
 		report['Timestamp'] = datetime.datetime.utcnow()
+		report['Dismissed'] = False
 		db.reports.insert(report)
 
 def on_error(payload):

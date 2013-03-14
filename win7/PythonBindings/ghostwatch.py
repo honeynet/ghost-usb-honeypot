@@ -27,7 +27,9 @@ if LOGFILE is not None:
 	logging.basicConfig(filename = LOGFILE, level = logging.INFO)
 else:
 	logging.basicConfig(stream = sys.stderr, level = logging.INFO)
-logger = logging.getLogger('ghostwatch')
+
+logger = logging.getLogger('ghostwatch')	
+hpc = hpfeeds.new(HPFEEDS_HOST, HPFEEDS_PORT, HPFEEDS_IDENT, HPFEEDS_SECRET)
 
 def create_status_update(action):
 	status_update = {'action': action, 'hostname': socket.gethostname()}
@@ -51,10 +53,8 @@ def main():
 		g.run(onincident)
 		logger.info('Virtual device removed')
 		hpc.publish(HPFEEDS_STATUS_CHANNEL, create_status_update('remove'))
+		hpc.close()
 		sleep(GHOST_INTERVAL)
-
-# Module setup
-hpc = hpfeeds.new(HPFEEDS_HOST, HPFEEDS_PORT, HPFEEDS_IDENT, HPFEEDS_SECRET)
 
 # Loop
 if __name__ == '__main__':		
