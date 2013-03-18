@@ -6,8 +6,11 @@ from pymongo.objectid import ObjectId
 import datetime
 
 @bottle.route('/')
-@bottle.route('/index.html')
 def index():
+	return bottle.static_file('/index.html', root = '.')
+
+@bottle.route('/machinetable')
+def machinetable():
 	machines = db.machines.find()
 	rows = []
 	categories = []
@@ -22,11 +25,19 @@ def index():
 			categories.append('error')
 			reports[machine['ident']] = detections[0]
 		rows.append((machine['ident'], machine['hostname'], str(machine['last_seen']), status))
-	return bottle.template('index', rows = rows, categories = categories, reports = reports)
+	return bottle.template('templates/machine_table', rows = rows, categories = categories, reports = reports)
 	
 @bottle.route('/dismiss/<obj_id>')
 def dismiss(obj_id):
 	db.reports.remove({'_id': ObjectId(obj_id)})
+	
+@bottle.route('/report/<machine_ident>')
+def report(machine_ident):
+	detections = db.reports.find({'Ident': machine_ident, 'Dismissed': False}).sort('Timestamp')
+	if detections.count() > 0:
+		return bottle.template('templates/report', res = detections[0])
+	else:
+		return None
 	
 @bottle.route('/<path:path>')
 def general(path):

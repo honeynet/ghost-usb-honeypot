@@ -54,53 +54,18 @@
 
             <p>The following table shows a list of machines that are running Ghost and have recently reported back to the server.</p>
 
-            <table class="table">
-                <thead>
-                    <tr>
-                        <th>Machine ID</th>
-						<th>Hostname</th>
-                        <th>Last update (UTC)</th>
-                        <th>Status</th>
-						<th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-					%for i in range(len(rows)):
-					<tr class="{{categories[i]}}">
-						%for col in rows[i]:
-						<td>{{col}}</td>
-						%end
-						%if rows[i][0] in reports:
-						<td><a href="#modal{{i}}" class="btn btn-primary" data-toggle="modal">More info</a> <a href="#" class="btn" onclick="dismiss('{{reports[rows[i][0]]['_id']}}');">Dismiss</a></td>
-						<div id="modal{{i}}" class="modal hide fade" tabindex="-1">
-							<div class="modal-header">
-								<button class="close" data-dismiss="modal">&times;</button>
-								<h3>Detection report</h3>
-							</div>
-							<div class="modal-body">
-								%res = reports[rows[i][0]]
-								<dl>
-									<dt>Timestamp</dt><dd>{{str(res['Timestamp'])}}</dd>
-									<dt>PID</dt><dd>{{res['PID']}}</dd>
-									<dt>TID</dt><dd>{{res['TID']}}</dd>
-									%if 'Modules' in res and len(res['Modules']) > 0:
-									<dt>Infecting executable</dt><dd>{{res['Modules'][0]}}</dd>
-									<dt>Loaded modules</dt><dd>
-									%for mod_index in range(len(res['Modules'])):
-									{{res['Modules'][mod_index]}}<br>
-									%end
-									</dd>
-									%end
-								</dl>
-							</div>
-						</div>
-						%else:
-						<td>n/a</td>
-						%end
-					</tr>
-					%end
-                </tbody>
+            <table id="machinetable" class="table">
+                <!-- Created dynamically -->
             </table>
+
+			<div id="modalreport" class="modal hide fade" tabindex="-1">
+				<div class="modal-header">
+					<button class="close" data-dismiss="modal">&times;</button>
+					<h3>Detection report</h3>
+				</div>
+				<div class="modal-body">
+				</div>
+			</div>
 
             <hr>
 
