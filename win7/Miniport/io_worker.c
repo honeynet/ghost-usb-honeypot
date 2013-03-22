@@ -102,7 +102,7 @@ UCHAR ProcessIoWorkItem(PGHOST_PORT_EXTENSION PortExtension, PIO_WORK_ITEM WorkI
 	ULONG ByteLength;
 	LARGE_INTEGER ByteOffset;
 	PGHOST_DRIVE_PDO_CONTEXT Context = WorkItem->DriveContext;
-	PCDB Cdb = (PCDB)WorkItem->Srb->Cdb;
+	PCDB Cdb = (PCDB)WorkItem->IoData.Srb->Cdb;
 	
 	if (Cdb->CDB6GENERIC.OperationCode != SCSIOP_READ && Cdb->CDB6GENERIC.OperationCode != SCSIOP_WRITE) {
 		KdPrint((__FUNCTION__": Invalid operation code\n"));
@@ -121,12 +121,12 @@ UCHAR ProcessIoWorkItem(PGHOST_PORT_EXTENSION PortExtension, PIO_WORK_ITEM WorkI
 		BlockCount, BlockOffset));
 	
 	ByteLength = BlockCount * GHOST_BLOCK_SIZE;
-	if (WorkItem->Srb->DataTransferLength < ByteLength) {
+	if (WorkItem->IoData.Srb->DataTransferLength < ByteLength) {
 		KdPrint((__FUNCTION__": Buffer too small\n"));
 		return SRB_STATUS_ERROR;
 	}
 	
-	if (!NT_SUCCESS(StorPortGetSystemAddress(PortExtension, WorkItem->Srb, &Buffer))) {
+	if (!NT_SUCCESS(StorPortGetSystemAddress(PortExtension, WorkItem->IoData.Srb, &Buffer))) {
 		KdPrint((__FUNCTION__": No system address\n"));
 		return SRB_STATUS_ERROR;
 	}
@@ -134,11 +134,42 @@ UCHAR ProcessIoWorkItem(PGHOST_PORT_EXTENSION PortExtension, PIO_WORK_ITEM WorkI
 	ByteOffset.QuadPart = BlockOffset * GHOST_BLOCK_SIZE;
 	
 	if (Cdb->CDB6GENERIC.OperationCode == SCSIOP_READ) {
-		RtlZeroMemory(Buffer, WorkItem->Srb->DataTransferLength);
+		RtlZeroMemory(Buffer, WorkItem->IoData.Srb->DataTransferLength);
 		status = GhostFileIoRead(Context, Buffer, ByteOffset, ByteLength);
 	}
 	else {
-		status = GhostFileIoWrite(Context, Buffer, ByteOffset, ByteLength);
+		//
+		// In order to avoid false alerts, we read first and then compare
+		// the result to the data that is to be written. We raise an alert
+		// only if the data has changed.
+		//
+		ULONG counter;
+		PCHAR OldByte, NewByte;
+		PVOID IntermediateBuffer = ExAllocatePoolWithTag(PagedPool, ByteLength, GHOST_PORT_TAG);
+		
+		status = GhostFileIoRead(Context, IntermediateBuffer, ByteOffset, ByteLength);
+		if (!NT_SUCCESS(status)) {
+			KdPrint((__FUNCTION__": Read before write failed (0x%lx)\n", status));
+			ExFreePoolWithTag(IntermediateBuffer, GHOST_PORT_TAG);
+			return SRB_STATUS_ERROR;
+		}
+		
+		OldByte = IntermediateBuffer;
+		NewByte = Buffer;
+		for (counter = 0; counter < ByteLength; counter++) {
+			if (*OldByte != *NewByte) {
+				KdPrint((__FUNCTION__": Data is new - writing\n"));
+				if (WorkItem->IoData.ProcessInfo != NULL) {
+					AddProcessInfo(PortExtension, Context, WorkItem->IoData.ProcessInfo);
+				}
+				status = GhostFileIoWrite(Context, Buffer, ByteOffset, ByteLength);
+				break;
+			}
+			OldByte++;
+			NewByte++;
+		}
+		
+		ExFreePoolWithTag(IntermediateBuffer, GHOST_PORT_TAG);
 	}
 	
 	if (!NT_SUCCESS(status)) {
@@ -183,8 +214,8 @@ VOID IoWorkerThread(PVOID ExecutionContext) {
 		// Process the item
 		switch (WorkItem->Type) {
 			case WorkItemIo:
-				WorkItem->Srb->SrbStatus = ProcessIoWorkItem(PortExtension, WorkItem);
-				StorPortNotification(RequestComplete, PortExtension, WorkItem->Srb);
+				WorkItem->IoData.Srb->SrbStatus = ProcessIoWorkItem(PortExtension, WorkItem);
+				StorPortNotification(RequestComplete, PortExtension, WorkItem->IoData.Srb);
 				break;
 				
 			case WorkItemInitialize:

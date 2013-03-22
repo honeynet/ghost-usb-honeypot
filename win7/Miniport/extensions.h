@@ -87,12 +87,15 @@ typedef struct _IO_WORK_ITEM {
 	LIST_ENTRY ListNode;
 	PGHOST_DRIVE_PDO_CONTEXT DriveContext;
 	union {
-		PSCSI_REQUEST_BLOCK Srb;
-		ULONG DeviceID;
+		struct {
+			PSCSI_REQUEST_BLOCK Srb;
+			PGHOST_INFO_PROCESS_DATA ProcessInfo;
+		} IoData; // for WorkItemIo
+		ULONG DeviceID; // for WorkItemInitialize
 		struct {
 			PWRITER_INFO_REQUEST WriterInfoRequest;
 			PGHOST_INFO_PROCESS_DATA ProcessInfo;
-		} WriterInfoData;
+		} WriterInfoData; // for WorkItemInfoRequest
 	};
 } IO_WORK_ITEM, *PIO_WORK_ITEM;
 

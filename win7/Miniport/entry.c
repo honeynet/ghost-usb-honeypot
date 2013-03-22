@@ -384,19 +384,16 @@ BOOLEAN GhostHwStorStartIo(
 				case SCSIOP_READ:	// 0x28
 				case SCSIOP_WRITE: {	// 0x2a
 					PIO_WORK_ITEM WorkItem;
+					PGHOST_INFO_PROCESS_DATA ProcessData = NULL;
 					
 					// If this is a write request, collect information about the issuer
 					if (Cdb->CDB6GENERIC.OperationCode == SCSIOP_WRITE) {
-						PGHOST_INFO_PROCESS_DATA ProcessData;
 						HANDLE CurrentPID = PsGetCurrentProcessId();
 						
 						// Check if we know this process already, have reached the maximum number of process info structs
 						// or are called by SYSTEM
 						if (CurrentPID != (HANDLE)4 && !IsProcessKnown(Context, CurrentPID) && Context->WriterInfoCount < GHOST_MAX_PROCESS_INFO) {
 							ProcessData = GhostInfoCollectProcessData();
-							if (ProcessData != NULL) {
-								AddProcessInfo(PortExtension, Context, ProcessData);
-							}
 						}
 					}
 					
@@ -406,7 +403,8 @@ BOOLEAN GhostHwStorStartIo(
 					KdPrint((__FUNCTION__": Enqueuing work item\n"));
 					WorkItem = ExAllocatePoolWithTag(NonPagedPool, sizeof(IO_WORK_ITEM), GHOST_PORT_TAG);
 					WorkItem->Type = WorkItemIo;
-					WorkItem->Srb = Srb;
+					WorkItem->IoData.Srb = Srb;
+					WorkItem->IoData.ProcessInfo = ProcessData;
 					WorkItem->DriveContext = Context;
 					EnqueueWorkItem(PortExtension, WorkItem);
 					

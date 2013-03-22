@@ -183,6 +183,8 @@ VOID AddProcessInfo(PGHOST_PORT_EXTENSION PortExtension, PGHOST_DRIVE_PDO_CONTEX
 			// (although it should be in non-paged memory, according to the documentation...). Instead,
 			// we tell the I/O worker thread to complete the IRP.
 			//
+			// Update 2013-03-22: This routine is now called from a worker thread, so IRP completion should
+			// be safe.
 			WorkItem = ExAllocatePoolWithTag(NonPagedPool, sizeof(IO_WORK_ITEM), GHOST_PORT_TAG);
 			WorkItem->Type = WorkItemInfoRequest;
 			WorkItem->DriveContext = Context;

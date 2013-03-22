@@ -29,7 +29,8 @@ Signature = "$Windows NT$"
 Class = SCSIAdapter
 ClassGUID = {4D36E97B-E325-11CE-BFC1-08002BE10318}
 Provider = %Ghost%
-DriverVer=11/22/2012,7.4.13.333
+DriverVer = 03/22/2013,0.2.0.1
+CatalogFile.NTamd64 = ghostport-amd64.cat
 
 
 [SourceDisksNames]
@@ -79,4 +80,6 @@ Mfg = "(Standard system devices)"
 DeviceDesc = "GhostPort Enumerator"
 ServiceName = "GhostPort driver"
 ServiceDesc = "Enumerates GhostDrive virtual drives"
+
+
 
