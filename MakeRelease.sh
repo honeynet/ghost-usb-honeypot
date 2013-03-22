@@ -11,8 +11,14 @@ else
 	exit
 fi
 
-DSTDIR="Release $DSTVERSION"
-ARCHIVE="ghost-win$DSTVERSION.zip"
+if [ "$2" = "amd64" ] ; then
+	ARCH="amd64"
+else
+	ARCH="i386"
+fi
+
+DSTDIR="Release $DSTVERSION $ARCH"
+ARCHIVE="ghost-win$DSTVERSION-$ARCH.zip"
 if [ "$DSTVERSION" = "7" ] ; then
 	OBJDIR="win7"
 elif [ "$DSTVERSION" = "XP" ] ; then
@@ -43,7 +49,7 @@ elif [ "$DSTVERSION" = "7" ] ; then
 	cp "${SUBDIR}/Readonly/ghostreadonly.inf" "$DSTDIR"
 fi
 
-cp "${SUBDIR}"/bin/i386/*.{exe,dll,sys} "$DSTDIR"
+cp "${SUBDIR}"/bin/"${ARCH}"/*.{exe,dll,sys} "$DSTDIR"
 cp "${SUBDIR}"/GhostLib/ghostlib.h "$DSTDIR"
 cp "${SUBDIR}"/GhostGUI/bin/Release/GhostGUI.exe "$DSTDIR"
 cp "${SUBDIR}"/PythonBindings/*.py "$DSTDIR"
