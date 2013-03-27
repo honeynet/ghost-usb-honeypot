@@ -29,7 +29,9 @@ def machinetable():
 	
 @bottle.route('/dismiss/<obj_id>')
 def dismiss(obj_id):
-	db.reports.remove({'_id': ObjectId(obj_id)})
+	report = db.reports.find_one({'_id': ObjectId(obj_id)})
+	report['Dismissed'] = True
+	db.reports.save(report)
 	
 @bottle.route('/report/<machine_ident>')
 def report(machine_ident):

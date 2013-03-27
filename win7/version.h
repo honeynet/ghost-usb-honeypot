@@ -29,7 +29,7 @@
 #define VERSION_H
 
 
-#define GHOST_VERSION "0.2"
+#define GHOST_VERSION "0.3"
 
 
 #endif

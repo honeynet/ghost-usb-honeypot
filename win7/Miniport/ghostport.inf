@@ -29,7 +29,7 @@ Signature = "$Windows NT$"
 Class = SCSIAdapter
 ClassGUID = {4D36E97B-E325-11CE-BFC1-08002BE10318}
 Provider = %Ghost%
-DriverVer = 03/22/2013,0.2.0.1
+DriverVer = 03/27/2013,0.3
 CatalogFile.NTamd64 = ghostport-amd64.cat
 
 

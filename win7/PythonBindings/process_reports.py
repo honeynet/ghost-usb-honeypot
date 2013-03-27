@@ -8,10 +8,10 @@ import datetime
 
 DB_HOST = 'localhost'
 DB_PORT = 27017
-HPFEEDS_HOST   = 'hpfriends.honeycloud.net'
-HPFEEDS_PORT   = 20000
-HPFEEDS_IDENT  = 'n8AY3Kuw'
-HPFEEDS_SECRET = 'zEzb23Ta8QhJBaC9'
+HPFEEDS_HOST   = 'your_broker'
+HPFEEDS_PORT   = 10000
+HPFEEDS_IDENT  = 'your_ident'
+HPFEEDS_SECRET = 'your_secret'
 HPFEEDS_REPORT_CHANNEL = 'ghost.reports'
 HPFEEDS_STATUS_CHANNEL = 'ghost.status'
 
