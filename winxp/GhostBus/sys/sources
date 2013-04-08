@@ -1,0 +1,9 @@
+TARGETNAME=GhostBus
+TARGETPATH=../../bin
+TARGETTYPE=DRIVER
+
+INCLUDES=..\..\GhostDrive
+
+SOURCES=ghostbus.c device_control.c file_io.c information.c
+
+KMDF_VERSION_MAJOR=1

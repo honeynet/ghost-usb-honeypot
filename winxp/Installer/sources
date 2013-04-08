@@ -1,0 +1,13 @@
+TARGETNAME=Setup
+TARGETPATH=../bin
+TARGETTYPE=PROGRAM
+
+INCLUDES=..\GhostDrive
+
+SOURCES=main.c
+TARGETLIBS=$(SDK_LIB_PATH)\kernel32.lib \
+			$(SDK_LIB_PATH)\newdev.lib \
+			$(SDK_LIB_PATH)\setupapi.lib
+
+USE_MSVCRT=1
+UMTYPE=console
