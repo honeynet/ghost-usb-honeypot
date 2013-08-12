@@ -36,6 +36,7 @@
 #include "file_io.h"
 #include "io_worker.h"
 #include "information.h"
+#include "code_origin.h"
 
 #define GHOST_VENDOR_ID "Ghost"
 #define GHOST_PRODUCT_ID "GhostPort"
@@ -143,6 +144,13 @@ BOOLEAN GhostHwStorPassiveInitializeRoutine(
 		return FALSE;
 	}
 	
+	// Start the subsystem that checks the origin of loaded code
+	status = GhostCodeOriginInit();
+	if (!NT_SUCCESS(status)) {
+		KdPrint((__FUNCTION__": Unable to start the code-origin subsystem"));
+		return FALSE;
+	}
+	
 	return TRUE;
 }
 
@@ -200,6 +208,8 @@ VOID GhostHwStorFreeAdapterResources(
 )
 {
 	PGHOST_PORT_EXTENSION PortExtension = DeviceExtension;
+	
+	GhostCodeOriginFree();
 	
 	// Terminate the I/O thread
 	KeSetEvent(&PortExtension->IoThreadTerminate, IO_NO_INCREMENT, FALSE);
